@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Forest Survivor</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0a; overflow: hidden; font-family: 'Courier New', monospace; }
+  canvas { display: block; }
+
+  #hud {
+    position: fixed; top: 0; left: 0; right: 0;
+    padding: 12px 16px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    pointer-events: none; z-index: 10;
+  }
+  .stat-bar { display: flex; flex-direction: column; gap: 4px; min-width: 120px; }
+  .stat-label { color: #aaa; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; }
+  .bar-bg { background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.15); border-radius: 2px; height: 8px; width: 120px; }
+  .bar-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+  .bar-hp   { background: linear-gradient(90deg, #b91c1c, #ef4444); }
+  .bar-hunger { background: linear-gradient(90deg, #92400e, #f59e0b); }
+  .bar-thirst { background: linear-gradient(90deg, #1e40af, #3b82f6); }
+
+  #day-counter {
+    position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+    color: rgba(255,255,255,0.7); font-size: 11px; letter-spacing: 3px;
+    text-transform: uppercase; pointer-events: none; z-index: 10;
+  }
+  #time-icon { font-size: 18px; display: block; text-align: center; margin-bottom: 2px; }
+
+  #inventory {
+    position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 8px; pointer-events: none; z-index: 10;
+  }
+  .inv-slot {
+    width: 48px; height: 48px;
+    background: rgba(0,0,0,0.6);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 6px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    font-size: 20px; color: white;
+    position: relative;
+  }
+  .inv-count {
+    position: absolute; bottom: 2px; right: 4px;
+    font-size: 9px; color: #ffd700;
+  }
+
+  /* Mobile controls */
+  #joystick-zone {
+    position: fixed; bottom: 20px; left: 20px;
+    width: 110px; height: 110px;
+    z-index: 20;
+  }
+  #joystick-bg {
+    width: 110px; height: 110px;
+    background: rgba(255,255,255,0.07);
+    border: 2px solid rgba(255,255,255,0.15);
+    border-radius: 50%;
+    position: absolute;
+  }
+  #joystick-thumb {
+    width: 44px; height: 44px;
+    background: rgba(255,255,255,0.25);
+    border: 2px solid rgba(255,255,255,0.4);
+    border-radius: 50%;
+    position: absolute;
+    top: 33px; left: 33px;
+    transition: none;
+  }
+
+  #action-buttons {
+    position: fixed; bottom: 20px; right: 20px;
+    display: flex; flex-direction: column; gap: 10px;
+    z-index: 20;
+  }
+  .action-btn {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.3);
+    background: rgba(0,0,0,0.55);
+    color: white; font-size: 22px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+  .action-btn:active { background: rgba(255,255,255,0.15); }
+
+  #look-zone {
+    position: fixed;
+    top: 0; left: 110px; right: 130px; bottom: 0;
+    z-index: 5;
+  }
+
+  #message {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: white; font-size: 14px; letter-spacing: 1px;
+    text-align: center;
+    background: rgba(0,0,0,0.7);
+    padding: 10px 20px; border-radius: 6px;
+    pointer-events: none; z-index: 30;
+    opacity: 0; transition: opacity 0.4s;
+  }
+  #message.show { opacity: 1; }
+
+  #death-screen {
+    position: fixed; inset: 0;
+    background: rgba(100,0,0,0.85);
+    display: none; align-items: center; justify-content: center;
+    flex-direction: column; gap: 20px; z-index: 100;
+  }
+  #death-screen h1 { color: #ff3333; font-size: 36px; letter-spacing: 4px; }
+  #death-screen p  { color: #ffaaaa; font-size: 14px; letter-spacing: 2px; }
+  #restart-btn {
+    padding: 12px 32px;
+    background: #991b1b; border: 2px solid #ef4444;
+    color: white; font-size: 14px; letter-spacing: 2px;
+    border-radius: 4px; cursor: pointer;
+    font-family: 'Courier New', monospace;
+  }
+
+  #crosshair {
+    position: fixed; top: 50%; left: 50%;
+    transform: translate(-50%,-50%);
+    width: 16px; height: 16px;
+    pointer-events: none; z-index: 10;
+  }
+  #crosshair::before, #crosshair::after {
+    content: '';
+    position: absolute;
+    background: rgba(255,255,255,0.7);
+  }
+  #crosshair::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
+  #crosshair::after  { width: 100%; height: 2px; top: 50%; transform: translateY(-50%); }
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<!-- HUD -->
+<div id="hud">
+  <div class="stat-bar">
+    <div class="stat-label">Health</div>
+    <div class="bar-bg"><div class="bar-fill bar-hp" id="bar-hp" style="width:100%"></div></div>
+    <div class="stat-label">Hunger</div>
+    <div class="bar-bg"><div class="bar-fill bar-hunger" id="bar-hunger" style="width:100%"></div></div>
+    <div class="stat-label">Thirst</div>
+    <div class="bar-bg"><div class="bar-fill bar-thirst" id="bar-thirst" style="width:100%"></div></div>
+  </div>
+  <div style="text-align:right; color:rgba(255,255,255,0.6); font-size:10px; letter-spacing:1px;">
+    <div id="score-display">Score: 0</div>
+    <div id="kills-display">Wolves: 0</div>
+  </div>
+</div>
+
+<div id="day-counter">
+  <span id="time-icon">🌙</span>
+  <span id="day-text">Day 1</span>
+</div>
+
+<div id="inventory">
+  <div class="inv-slot">🪵<span class="inv-count" id="inv-wood">0</span></div>
+  <div class="inv-slot">🍄<span class="inv-count" id="inv-food">0</span></div>
+  <div class="inv-slot">💧<span class="inv-count" id="inv-water">0</span></div>
+  <div class="inv-slot">🔥<span class="inv-count" id="inv-fire">0</span></div>
+</div>
+
+<div id="crosshair"></div>
+<div id="message"></div>
+
+<!-- Joystick -->
+<div id="joystick-zone">
+  <div id="joystick-bg"></div>
+  <div id="joystick-thumb"></div>
+</div>
+
+<!-- Look zone (middle of screen for camera drag) -->
+<div id="look-zone"></div>
+
+<!-- Action buttons -->
+<div id="action-buttons">
+  <div class="action-btn" id="btn-interact">🤚</div>
+  <div class="action-btn" id="btn-attack">⚔️</div>
+</div>
+
+<!-- Death Screen -->
+<div id="death-screen">
+  <h1>YOU DIED</h1>
+  <p id="death-msg">You survived 0 days in the forest.</p>
+  <button id="restart-btn" onclick="location.reload()">TRY AGAIN</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ─── SCENE SETUP ─────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.setClearColor(0x0a1a0a);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x0a1a0a, 0.04);
+
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 200);
+camera.position.set(0, 1.7, 0);
+
+window.addEventListener('resize', () => {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+});
+
+// ─── LIGHTING ─────────────────────────────────────────────────────────────────
+const ambient = new THREE.AmbientLight(0x112211, 0.5);
+scene.add(ambient);
+
+const moonLight = new THREE.DirectionalLight(0x4466aa, 0.6);
+moonLight.position.set(10, 30, 10);
+moonLight.castShadow = true;
+moonLight.shadow.mapSize.set(1024, 1024);
+moonLight.shadow.camera.far = 150;
+moonLight.shadow.camera.left = -50;
+moonLight.shadow.camera.right = 50;
+moonLight.shadow.camera.top = 50;
+moonLight.shadow.camera.bottom = -50;
+scene.add(moonLight);
+
+// ─── GROUND ───────────────────────────────────────────────────────────────────
+const groundGeo = new THREE.PlaneGeometry(200, 200, 40, 40);
+const groundMat = new THREE.MeshLambertMaterial({ color: 0x1a3a1a });
+// slight terrain variation
+const posArr = groundGeo.attributes.position.array;
+for (let i = 0; i < posArr.length; i += 3) {
+  const x = posArr[i], z = posArr[i+2];
+  if (Math.abs(x) > 3 || Math.abs(z) > 3) posArr[i+1] = Math.sin(x*0.3)*Math.cos(z*0.3)*0.8;
+}
+groundGeo.computeVertexNormals();
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// ─── STARS ─────────────────────────────────────────────────────────────────────
+const starGeo = new THREE.BufferGeometry();
+const starVerts = [];
+for (let i = 0; i < 800; i++) {
+  const theta = Math.random() * Math.PI * 2;
+  const phi   = Math.acos(2 * Math.random() - 1);
+  const r = 150;
+  starVerts.push(r*Math.sin(phi)*Math.cos(theta), r*Math.cos(phi), r*Math.sin(phi)*Math.sin(theta));
+}
+starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts, 3));
+const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.5 }));
+scene.add(stars);
+
+// ─── TREE BUILDER ─────────────────────────────────────────────────────────────
+function makeTree(x, z) {
+  const g = new THREE.Group();
+  const h = 4 + Math.random() * 4;
+  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x3d2b1a });
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.25, h, 6), trunkMat);
+  trunk.position.y = h / 2;
+  trunk.castShadow = true;
+  g.add(trunk);
+
+  const leafColors = [0x1a4d1a, 0x1e5c1e, 0x163d16, 0x0d2e0d];
+  const lc = leafColors[Math.floor(Math.random() * leafColors.length)];
+  const leafMat = new THREE.MeshLambertMaterial({ color: lc });
+  const layers = 3 + Math.floor(Math.random() * 2);
+  for (let i = 0; i < layers; i++) {
+    const r = 1.5 - i * 0.3 + Math.random() * 0.3;
+    const lh = 2 + Math.random();
+    const leaf = new THREE.Mesh(new THREE.ConeGeometry(r, lh, 7), leafMat);
+    leaf.position.y = h * 0.6 + i * 1.2;
+    leaf.castShadow = true;
+    g.add(leaf);
+  }
+  g.position.set(x, 0, z);
+  g.userData.isTree = true;
+  g.userData.wood = Math.floor(2 + Math.random() * 3);
+  scene.add(g);
+  return g;
+}
+
+const trees = [];
+for (let i = 0; i < 120; i++) {
+  const angle = Math.random() * Math.PI * 2;
+  const dist  = 8 + Math.random() * 80;
+  trees.push(makeTree(Math.cos(angle)*dist, Math.sin(angle)*dist));
+}
+
+// ─── RESOURCES ────────────────────────────────────────────────────────────────
+const resources = []; // {mesh, type, amount}
+
+function spawnResource(type, count) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist  = 5 + Math.random() * 50;
+    const x = Math.cos(angle) * dist, z = Math.sin(angle) * dist;
+    let mesh;
+    if (type === 'food') {
+      mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.3, 6, 6),
+        new THREE.MeshLambertMaterial({ color: 0xcc4422 })
+      );
+      mesh.position.set(x, 0.3, z);
+    } else if (type === 'water') {
+      mesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.4, 0.4, 0.2, 8),
+        new THREE.MeshLambertMaterial({ color: 0x2255cc })
+      );
+      mesh.position.set(x, 0.1, z);
+    }
+    if (mesh) {
+      mesh.castShadow = true;
+      mesh.userData = { type, amount: 20 + Math.floor(Math.random() * 20) };
+      scene.add(mesh);
+      resources.push(mesh);
+    }
+  }
+}
+spawnResource('food', 15);
+spawnResource('water', 10);
+
+// ─── CAMPFIRE ─────────────────────────────────────────────────────────────────
+const fires = [];
+function buildCampfire(x, z) {
+  const g = new THREE.Group();
+  // logs
+  const logMat = new THREE.MeshLambertMaterial({ color: 0x3d2b1a });
+  for (let i = 0; i < 5; i++) {
+    const l = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.8, 5), logMat);
+    l.rotation.z = Math.PI / 2;
+    l.rotation.y = (i / 5) * Math.PI * 2;
+    l.position.set(Math.cos((i/5)*Math.PI*2)*0.2, 0.05, Math.sin((i/5)*Math.PI*2)*0.2);
+    g.add(l);
+  }
+  // flame light
+  const fl = new THREE.PointLight(0xff6600, 2, 8);
+  fl.position.set(0, 0.5, 0);
+  g.add(fl);
+  // flame mesh
+  const flame = new THREE.Mesh(
+    new THREE.ConeGeometry(0.2, 0.6, 6),
+    new THREE.MeshBasicMaterial({ color: 0xff4400 })
+  );
+  flame.position.y = 0.4;
+  g.add(flame);
+  g.position.set(x, 0, z);
+  scene.add(g);
+  fires.push({ group: g, light: fl, flame });
+  return g;
+}
+
+// ─── WOLVES ───────────────────────────────────────────────────────────────────
+const wolves = [];
+function spawnWolf(x, z) {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshLambertMaterial({ color: 0x555566 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.5, 1.2), mat);
+  body.position.y = 0.5;
+  g.add(body);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.35, 0.4), mat);
+  head.position.set(0, 0.75, 0.6);
+  g.add(head);
+  // legs
+  for (let i = 0; i < 4; i++) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.4, 0.12), mat);
+    leg.position.set(i < 2 ? -0.25 : 0.25, 0.2, i % 2 === 0 ? 0.35 : -0.35);
+    g.add(leg);
+  }
+  g.position.set(x, 0, z);
+  g.castShadow = true;
+  g.userData = { hp: 3, speed: 2 + Math.random(), alertRange: 15 };
+  scene.add(g);
+  wolves.push(g);
+  return g;
+}
+
+// Spawn initial wolves at distance
+for (let i = 0; i < 5; i++) {
+  const a = Math.random() * Math.PI * 2;
+  const d = 20 + Math.random() * 30;
+  spawnWolf(Math.cos(a)*d, Math.sin(a)*d);
+}
+
+// ─── PLAYER STATE ─────────────────────────────────────────────────────────────
+const player = {
+  hp: 100, hunger: 100, thirst: 100,
+  wood: 0, food: 0, water: 0, fires: 0,
+  score: 0, kills: 0,
+  day: 1, dayTime: 0, // 0-1 per day (20s real-time)
+  dead: false,
+  yaw: 0, pitch: 0,
+  velocity: new THREE.Vector3(),
+  onGround: true,
+  attackCooldown: 0,
+};
+
+// ─── INPUT ────────────────────────────────────────────────────────────────────
+const keys = {};
+document.addEventListener('keydown', e => keys[e.code] = true);
+document.addEventListener('keyup',   e => keys[e.code] = false);
+
+// Desktop mouse look
+let mouseLocked = false;
+canvas.addEventListener('click', () => {
+  if (!player.dead) canvas.requestPointerLock?.();
+});
+document.addEventListener('pointerlockchange', () => {
+  mouseLocked = document.pointerLockElement === canvas;
+});
+document.addEventListener('mousemove', e => {
+  if (!mouseLocked) return;
+  player.yaw   -= e.movementX * 0.002;
+  player.pitch -= e.movementY * 0.002;
+  player.pitch = Math.max(-1.2, Math.min(0.5, player.pitch));
+});
+
+// Joystick
+const jZone  = document.getElementById('joystick-zone');
+const jThumb = document.getElementById('joystick-thumb');
+const joystick = { x: 0, y: 0, active: false, id: null, cx: 0, cy: 0 };
+
+jZone.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  joystick.active = true; joystick.id = t.identifier;
+  joystick.cx = t.clientX; joystick.cy = t.clientY;
+}, { passive: false });
+
+document.addEventListener('touchmove', e => {
+  for (const t of e.changedTouches) {
+    if (t.identifier === joystick.id) {
+      const dx = t.clientX - joystick.cx;
+      const dy = t.clientY - joystick.cy;
+      const dist = Math.min(Math.hypot(dx, dy), 38);
+      const angle = Math.atan2(dy, dx);
+      joystick.x = Math.cos(angle) * dist / 38;
+      joystick.y = Math.sin(angle) * dist / 38;
+      jThumb.style.left = (33 + Math.cos(angle)*dist) + 'px';
+      jThumb.style.top  = (33 + Math.sin(angle)*dist) + 'px';
+    }
+  }
+}, { passive: true });
+
+document.addEventListener('touchend', e => {
+  for (const t of e.changedTouches) {
+    if (t.identifier === joystick.id) {
+      joystick.active = false; joystick.x = 0; joystick.y = 0;
+      jThumb.style.left = '33px'; jThumb.style.top = '33px';
+    }
+  }
+});
+
+// Look zone (camera drag)
+const lookZone = document.getElementById('look-zone');
+const lookState = { active: false, id: null, lx: 0, ly: 0 };
+lookZone.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  lookState.active = true; lookState.id = t.identifier;
+  lookState.lx = t.clientX; lookState.ly = t.clientY;
+}, { passive: false });
+
+document.addEventListener('touchmove', e => {
+  for (const t of e.changedTouches) {
+    if (t.identifier === lookState.id) {
+      const dx = t.clientX - lookState.lx;
+      const dy = t.clientY - lookState.ly;
+      player.yaw   -= dx * 0.003;
+      player.pitch -= dy * 0.003;
+      player.pitch = Math.max(-1.2, Math.min(0.5, player.pitch));
+      lookState.lx = t.clientX; lookState.ly = t.clientY;
+    }
+  }
+}, { passive: true });
+
+document.addEventListener('touchend', e => {
+  for (const t of e.changedTouches) {
+    if (t.identifier === lookState.id) lookState.active = false;
+  }
+});
+
+// Action buttons
+document.getElementById('btn-interact').addEventListener('touchstart', e => { e.preventDefault(); doInteract(); }, { passive: false });
+document.getElementById('btn-attack').addEventListener('touchstart', e => { e.preventDefault(); doAttack(); }, { passive: false });
+document.addEventListener('keydown', e => {
+  if (e.code === 'KeyE') doInteract();
+  if (e.code === 'Space') doAttack();
+  if (e.code === 'KeyF') doFire();
+});
+document.getElementById('btn-interact').addEventListener('click', doInteract);
+document.getElementById('btn-attack').addEventListener('click', doAttack);
+
+// ─── MESSAGES ────────────────────────────────────────────────────────────────
+let msgTimer = 0;
+function showMsg(text) {
+  const el = document.getElementById('message');
+  el.textContent = text;
+  el.classList.add('show');
+  msgTimer = 2.5;
+}
+
+// ─── INTERACTION ──────────────────────────────────────────────────────────────
+function doInteract() {
+  if (player.dead) return;
+  const cam = camera.position;
+
+  // Check resources
+  for (let i = resources.length - 1; i >= 0; i--) {
+    const r = resources[i];
+    if (cam.distanceTo(r.position) < 3) {
+      if (r.userData.type === 'food') {
+        player.food = Math.min(99, player.food + r.userData.amount);
+        showMsg('🍄 Found mushrooms! +' + r.userData.amount);
+      } else if (r.userData.type === 'water') {
+        player.water = Math.min(99, player.water + r.userData.amount);
+        showMsg('💧 Collected water! +' + r.userData.amount);
+      }
+      scene.remove(r);
+      resources.splice(i, 1);
+      // respawn later
+      setTimeout(() => spawnResource(r.userData.type, 1), 30000);
+      return;
+    }
+  }
+
+  // Check trees
+  for (const tree of trees) {
+    if (cam.distanceTo(tree.position) < 3) {
+      if (tree.userData.wood > 0) {
+        const got = Math.min(tree.userData.wood, 2);
+        player.wood += got;
+        tree.userData.wood -= got;
+        showMsg('🪵 Chopped wood! +' + got);
+        if (tree.userData.wood <= 0) {
+          scene.remove(tree);
+          trees.splice(trees.indexOf(tree), 1);
+        }
+      } else {
+        showMsg('This tree is bare.');
+      }
+      return;
+    }
+  }
+
+  // Eat / drink from inventory
+  if (player.food > 0 && player.hunger < 80) {
+    const eat = Math.min(player.food, 25);
+    player.hunger = Math.min(100, player.hunger + eat);
+    player.food -= eat;
+    showMsg('🍄 Ate mushrooms! Hunger restored.');
+    return;
+  }
+  if (player.water > 0 && player.thirst < 80) {
+    const drink = Math.min(player.water, 25);
+    player.thirst = Math.min(100, player.thirst + drink);
+    player.water -= drink;
+    showMsg('💧 Drank water! Thirst quenched.');
+    return;
+  }
+  showMsg('Nothing nearby. (Tap ⚔️ to attack)');
+}
+
+function doFire() {
+  if (player.dead) return;
+  if (player.wood >= 3) {
+    player.wood -= 3;
+    player.fires++;
+    buildCampfire(camera.position.x + Math.sin(player.yaw)*2, camera.position.z + Math.cos(player.yaw)*2);
+    showMsg('🔥 Built a campfire!');
+  } else {
+    showMsg('Need 3 wood to build a fire. (F key)');
+  }
+}
+
+function doAttack() {
+  if (player.dead || player.attackCooldown > 0) return;
+  player.attackCooldown = 0.7;
+
+  // Ray from camera
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+
+  let hit = null, minDist = 5;
+  for (const wolf of wolves) {
+    const toWolf = wolf.position.clone().sub(camera.position);
+    const dist = toWolf.length();
+    if (dist < minDist) {
+      // dot product check
+      const dot = toWolf.normalize().dot(dir);
+      if (dot > 0.7) {
+        hit = wolf; minDist = dist;
+      }
+    }
+  }
+  if (hit) {
+    hit.userData.hp--;
+    showMsg('⚔️ Hit the wolf!');
+    if (hit.userData.hp <= 0) {
+      scene.remove(hit);
+      wolves.splice(wolves.indexOf(hit), 1);
+      player.kills++;
+      player.score += 50;
+      showMsg('💀 Wolf defeated! +50 pts');
+      // drop food
+      const f = new THREE.Mesh(
+        new THREE.SphereGeometry(0.3, 6, 6),
+        new THREE.MeshLambertMaterial({ color: 0xcc4422 })
+      );
+      f.position.copy(hit.position).add(new THREE.Vector3(0, 0.3, 0));
+      f.userData = { type: 'food', amount: 30 };
+      scene.add(f);
+      resources.push(f);
+    }
+  } else {
+    showMsg('⚔️ Swung at air!');
+  }
+}
+
+// ─── HUD UPDATE ───────────────────────────────────────────────────────────────
+function updateHUD() {
+  document.getElementById('bar-hp').style.width     = player.hp + '%';
+  document.getElementById('bar-hunger').style.width = player.hunger + '%';
+  document.getElementById('bar-thirst').style.width = player.thirst + '%';
+  document.getElementById('inv-wood').textContent  = player.wood;
+  document.getElementById('inv-food').textContent  = player.food;
+  document.getElementById('inv-water').textContent = player.water;
+  document.getElementById('inv-fire').textContent  = player.fires;
+  document.getElementById('score-display').textContent = 'Score: ' + player.score;
+  document.getElementById('kills-display').textContent = 'Wolves: ' + player.kills;
+}
+
+// ─── DEATH ────────────────────────────────────────────────────────────────────
+function die(reason) {
+  if (player.dead) return;
+  player.dead = true;
+  document.getElementById('death-screen').style.display = 'flex';
+  document.getElementById('death-msg').textContent =
+    `You survived ${player.day} day${player.day!==1?'s':''} in the forest. ${reason} Score: ${player.score}`;
+}
+
+// ─── MAIN LOOP ────────────────────────────────────────────────────────────────
+const clock = new THREE.Clock();
+const DAY_DURATION = 60; // seconds per day
+
+function tick() {
+  requestAnimationFrame(tick);
+  if (player.dead) { renderer.render(scene, camera); return; }
+
+  const dt = Math.min(clock.getDelta(), 0.1);
+
+  // ── Day/Night cycle
+  player.dayTime = (player.dayTime + dt / DAY_DURATION) % 1;
+  const isDay = player.dayTime < 0.5;
+  const sunAngle = player.dayTime * Math.PI * 2;
+
+  // Update ambient / moon
+  const dayBrightness = Math.sin(player.dayTime * Math.PI);
+  ambient.intensity = 0.2 + dayBrightness * 0.6;
+  moonLight.intensity = isDay ? 0.8 * dayBrightness : 0.3;
+  moonLight.color.setHex(isDay ? 0xffeedd : 0x4466aa);
+  scene.fog.color.setHex(isDay ? 0x4a7a4a : 0x0a1a0a);
+  renderer.setClearColor(isDay ? 0x4a7a4a : 0x0a1a0a);
+
+  // Update day text
+  if (player.dayTime < 0.01 && dt > 0) {
+    player.day++;
+    player.score += 20;
+    // Spawn more wolves each day
+    if (player.day % 2 === 0) {
+      const a = Math.random() * Math.PI * 2;
+      const d = 25 + Math.random() * 20;
+      spawnWolf(Math.cos(a)*d, Math.sin(a)*d);
+    }
+  }
+  document.getElementById('day-text').textContent = `Day ${player.day}`;
+  document.getElementById('time-icon').textContent = isDay ? '☀️' : '🌙';
+
+  // ── Survival drain
+  const drainRate = isDay ? 1 : 1.5; // faster at night
+  player.hunger -= dt * 1.5 * drainRate;
+  player.thirst -= dt * 2.0 * drainRate;
+  player.hunger = Math.max(0, player.hunger);
+  player.thirst = Math.max(0, player.thirst);
+
+  if (player.hunger <= 0 || player.thirst <= 0) {
+    player.hp -= dt * 5;
+  } else if (player.hp < 100) {
+    player.hp = Math.min(100, player.hp + dt * 2); // slow regen
+  }
+
+  // Campfire warmth at night
+  for (const fire of fires) {
+    const d = camera.position.distanceTo(fire.group.position);
+    if (d < 5) {
+      player.hp = Math.min(100, player.hp + dt * 3);
+      fire.light.intensity = 2 + Math.sin(Date.now()*0.01) * 0.4;
+    }
+    // flicker
+    fire.flame.scale.y = 0.8 + Math.sin(Date.now()*0.007) * 0.2;
+  }
+
+  if (player.hp <= 0) { die('You starved.'); return; }
+
+  // ── Movement
+  const fwd  = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+  const right = new THREE.Vector3(Math.cos(player.yaw), 0, -Math.sin(player.yaw));
+  const moveVec = new THREE.Vector3();
+  const speed = 6;
+
+  // Keyboard
+  if (keys['KeyW'] || keys['ArrowUp'])    moveVec.add(fwd);
+  if (keys['KeyS'] || keys['ArrowDown'])  moveVec.sub(fwd);
+  if (keys['KeyA'] || keys['ArrowLeft'])  moveVec.sub(right);
+  if (keys['KeyD'] || keys['ArrowRight']) moveVec.add(right);
+
+  // Joystick
+  if (joystick.active) {
+    moveVec.add(fwd.clone().multiplyScalar(-joystick.y));
+    moveVec.add(right.clone().multiplyScalar(joystick.x));
+  }
+
+  if (moveVec.lengthSq() > 0) {
+    moveVec.normalize().multiplyScalar(speed * dt);
+    camera.position.add(moveVec);
+  }
+
+  // Keep on ground (simple terrain sampling)
+  const gx = camera.position.x, gz = camera.position.z;
+  const groundY = Math.sin(gx*0.3)*Math.cos(gz*0.3)*0.8;
+  camera.position.y = Math.max(groundY + 1.7, 1.7);
+
+  // World bounds
+  camera.position.x = Math.max(-90, Math.min(90, camera.position.x));
+  camera.position.z = Math.max(-90, Math.min(90, camera.position.z));
+
+  // ── Camera rotation
+  camera.rotation.order = 'YXZ';
+  camera.rotation.y = player.yaw;
+  camera.rotation.x = player.pitch;
+
+  // ── Attack cooldown
+  if (player.attackCooldown > 0) player.attackCooldown -= dt;
+
+  // ── Wolf AI
+  const camPos = camera.position.clone();
+  for (const wolf of wolves) {
+    const dist = wolf.position.distanceTo(camPos);
+    if (dist < wolf.userData.alertRange) {
+      // Chase
+      const dir2 = camPos.clone().sub(wolf.position).normalize();
+      wolf.position.add(dir2.multiplyScalar(wolf.userData.speed * dt));
+      wolf.lookAt(camPos.x, wolf.position.y, camPos.z);
+      // Simple terrain follow
+      wolf.position.y = Math.sin(wolf.position.x*0.3)*Math.cos(wolf.position.z*0.3)*0.8;
+
+      if (dist < 1.5) {
+        player.hp -= dt * 15;
+        showMsg('🐺 Wolf attacks you!');
+      }
+    } else {
+      // Wander
+      wolf.position.x += Math.sin(Date.now()*0.001 + wolf.userData.speed) * dt * 1;
+      wolf.position.z += Math.cos(Date.now()*0.0008 + wolf.userData.speed) * dt * 1;
+      wolf.position.y = Math.sin(wolf.position.x*0.3)*Math.cos(wolf.position.z*0.3)*0.8;
+    }
+  }
+
+  // ── Score over time
+  player.score += dt;
+
+  // ── Message fade
+  if (msgTimer > 0) {
+    msgTimer -= dt;
+    if (msgTimer <= 0) document.getElementById('message').classList.remove('show');
+  }
+
+  updateHUD();
+  renderer.render(scene, camera);
+}
+
+// ─── START ────────────────────────────────────────────────────────────────────
+showMsg('🌲 Survive the forest! Tap 🤚 to gather, ⚔️ to fight. Build fires (F key / 3 wood).');
+tick();
+</script>
+</body>
+</html>

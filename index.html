@@ -30,22 +30,85 @@
   }
   #time-icon { font-size: 18px; display: block; text-align: center; margin-bottom: 2px; }
 
-  #inventory {
-    position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%);
-    display: flex; gap: 8px; pointer-events: none; z-index: 10;
+  #backpack-btn {
+    position: fixed; top: 10px; right: 10px;
+    width: 46px; height: 46px;
+    border-radius: 10px;
+    background: linear-gradient(160deg, #8a5a2e, #5e3c1c);
+    border: 2px solid rgba(255,210,140,0.45);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px;
+    z-index: 15; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
   }
-  .inv-slot {
-    width: 48px; height: 48px;
+  #backpack-btn:active { background: linear-gradient(160deg, #a06c38, #6e4621); }
+
+  #hotbar {
+    position: fixed; bottom: 96px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 6px; z-index: 10;
+  }
+  .hotbar-slot {
+    width: 44px; height: 44px;
     background: linear-gradient(160deg, #6b4423, #4a2f18);
     border: 1px solid rgba(255,210,140,0.35);
     border-radius: 6px;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    font-size: 20px; color: white;
+    font-size: 18px; color: white;
     position: relative;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
   }
-  .inv-count {
-    position: absolute; bottom: 2px; right: 4px;
+  .hotbar-slot.equipped {
+    border: 2px solid #ffe27a;
+    box-shadow: 0 0 8px rgba(255,226,122,0.6);
+  }
+  .hotbar-count {
+    position: absolute; bottom: 1px; right: 3px;
+    font-size: 9px; color: #ffe27a;
+  }
+
+  #backpack-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: none; align-items: center; justify-content: center;
+    z-index: 50;
+  }
+  #backpack-panel {
+    width: min(340px, 90vw);
+    max-height: 78vh;
+    background: linear-gradient(160deg, #5e3c1c, #3c2710);
+    border: 2px solid rgba(255,210,140,0.4);
+    border-radius: 12px;
+    padding: 12px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  #backpack-header {
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  #backpack-title {
+    color: #ffe27a; font-size: 14px; letter-spacing: 2px; text-transform: uppercase;
+  }
+  #backpack-close {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: rgba(255,255,255,0.1); color: white;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  #backpack-grid {
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    gap: 6px; overflow-y: auto; padding-right: 2px;
+  }
+  .backpack-slot {
+    aspect-ratio: 1; background: rgba(0,0,0,0.35);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px; color: white; position: relative;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .backpack-slot:active { background: rgba(255,255,255,0.12); }
+  .backpack-count {
+    position: absolute; bottom: 1px; right: 3px;
     font-size: 9px; color: #ffe27a;
   }
 
@@ -151,22 +214,29 @@
     <div class="stat-label">Thirst</div>
     <div class="bar-bg"><div class="bar-fill bar-thirst" id="bar-thirst" style="width:100%"></div></div>
   </div>
-  <div style="text-align:right; color:rgba(255,255,255,0.6); font-size:10px; letter-spacing:1px;">
+  <div style="text-align:right; color:rgba(255,255,255,0.6); font-size:10px; letter-spacing:1px; margin-top:54px;">
     <div id="score-display">Score: 0</div>
     <div id="kills-display">Wolves: 0</div>
   </div>
 </div>
+
+<div id="backpack-btn">🎒</div>
 
 <div id="day-counter">
   <span id="time-icon">🌙</span>
   <span id="day-text">Day 1</span>
 </div>
 
-<div id="inventory">
-  <div class="inv-slot">🪵<span class="inv-count" id="inv-wood">0</span></div>
-  <div class="inv-slot">🍄<span class="inv-count" id="inv-food">0</span></div>
-  <div class="inv-slot">💧<span class="inv-count" id="inv-water">0</span></div>
-  <div class="inv-slot">🔥<span class="inv-count" id="inv-fire">0</span></div>
+<div id="hotbar"></div>
+
+<div id="backpack-overlay">
+  <div id="backpack-panel">
+    <div id="backpack-header">
+      <span id="backpack-title">Backpack</span>
+      <div id="backpack-close">✕</div>
+    </div>
+    <div id="backpack-grid"></div>
+  </div>
 </div>
 
 <div id="crosshair"></div>
@@ -184,7 +254,6 @@
 <!-- Action buttons -->
 <div id="action-buttons">
   <div class="action-btn" id="btn-interact">🤚</div>
-  <div class="action-btn" id="btn-attack">⚔️</div>
 </div>
 
 <!-- Death Screen -->
@@ -217,6 +286,11 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
 });
 
+// ─── FIRST-PERSON AXE MODEL ───────────────────────────────────────────────────
+scene.add(camera); // so the camera's child (the axe) renders correctly
+const axeGroup = new THREE.Group();
+let axeSwingTimer = 0;
+
 // ─── TOON SHADING HELPER (cel-shaded "Raft" look) ─────────────────────────────
 function buildToonGradient() {
   const colors = new Uint8Array([70, 140, 200, 255]);
@@ -227,6 +301,22 @@ function buildToonGradient() {
   return tex;
 }
 const toonGradient = buildToonGradient();
+
+// Build the first-person axe now that toon materials are available
+{
+  const handleMat = new THREE.MeshToonMaterial({ color: 0x8a5a2e, gradientMap: toonGradient });
+  const headMat   = new THREE.MeshToonMaterial({ color: 0xb8b8c0, gradientMap: toonGradient });
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.55, 6), handleMat);
+  handle.rotation.z = Math.PI / 2.6;
+  axeGroup.add(handle);
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.22, 4), headMat);
+  head.position.set(0.24, 0.13, 0);
+  head.rotation.z = Math.PI / 2;
+  axeGroup.add(head);
+  axeGroup.position.set(0.32, -0.32, -0.55);
+  axeGroup.rotation.set(0.3, -0.5, 0.1);
+  camera.add(axeGroup);
+}
 
 // ─── LIGHTING (bright stylized outdoor look) ──────────────────────────────────
 const hemiLight = new THREE.HemisphereLight(0x9fd8ff, 0x4a7a3a, 0.9);
@@ -474,7 +564,6 @@ for (let i = 0; i < 5; i++) {
 // ─── PLAYER STATE ─────────────────────────────────────────────────────────────
 const player = {
   hp: 100, hunger: 100, thirst: 100,
-  wood: 0, food: 0, water: 0, fires: 0,
   score: 0, kills: 0,
   day: 1, dayTime: 0, // 0-1 per day (20s real-time)
   dead: false,
@@ -484,6 +573,107 @@ const player = {
   attackCooldown: 0,
 };
 
+// ─── INVENTORY: 50-slot backpack (storage) + 7-slot hotbar (usable) ──────────
+const backpack = new Array(50).fill(null);
+const hotbar = new Array(7).fill(null);
+hotbar[0] = { type: 'axe', count: 1 }; // you always start with your axe
+
+const ITEM_ICONS = { axe: '🪓', wood: '🪵', food: '🍄', water: '💧' };
+let backpackOpen = false;
+
+function addToBackpack(type, amount) {
+  let slot = backpack.findIndex(s => s && s.type === type);
+  if (slot === -1) slot = backpack.findIndex(s => s === null);
+  if (slot === -1) return false; // backpack full
+  if (backpack[slot]) backpack[slot].count += amount;
+  else backpack[slot] = { type, count: amount };
+  renderInventoryUI();
+  return true;
+}
+
+function moveBackpackToHotbar(i) {
+  const item = backpack[i];
+  if (!item) return;
+  let target = hotbar.findIndex(h => h && h.type === item.type);
+  if (target === -1) target = hotbar.findIndex(h => h === null);
+  if (target === -1) { showMsg('Hotbar is full!'); return; }
+  if (hotbar[target]) hotbar[target].count += item.count;
+  else hotbar[target] = { type: item.type, count: item.count };
+  backpack[i] = null;
+  showMsg(ITEM_ICONS[item.type] + ' Moved to hotbar');
+  renderInventoryUI();
+}
+
+function tapHotbarSlot(i) {
+  const item = hotbar[i];
+  if (!item) return;
+  if (item.type === 'axe') { showMsg('🪓 Your axe — tap the screen to swing it!'); return; }
+  if (item.type === 'food') {
+    player.hunger = Math.min(100, player.hunger + 25);
+    item.count--;
+    if (item.count <= 0) hotbar[i] = null;
+    showMsg('🍄 Ate a mushroom.');
+  } else if (item.type === 'water') {
+    player.thirst = Math.min(100, player.thirst + 25);
+    item.count--;
+    if (item.count <= 0) hotbar[i] = null;
+    showMsg('💧 Drank water.');
+  } else if (item.type === 'wood') {
+    if (item.count >= 3) {
+      item.count -= 3;
+      if (item.count <= 0) hotbar[i] = null;
+      buildCampfire(camera.position.x + Math.sin(player.yaw) * 2, camera.position.z + Math.cos(player.yaw) * 2);
+      showMsg('🔥 Built a campfire!');
+    } else {
+      showMsg('Need 3 wood in this stack to build a fire.');
+    }
+  }
+  renderInventoryUI();
+}
+
+function renderInventoryUI() {
+  const hotbarEl = document.getElementById('hotbar');
+  hotbarEl.innerHTML = '';
+  hotbar.forEach((item, i) => {
+    const slot = document.createElement('div');
+    slot.className = 'hotbar-slot' + (i === 0 ? ' equipped' : '');
+    if (item) {
+      slot.innerHTML = ITEM_ICONS[item.type] +
+        (item.type !== 'axe' ? `<span class="hotbar-count">${item.count}</span>` : '');
+    }
+    slot.onclick = () => tapHotbarSlot(i);
+    hotbarEl.appendChild(slot);
+  });
+
+  if (backpackOpen) {
+    const gridEl = document.getElementById('backpack-grid');
+    gridEl.innerHTML = '';
+    backpack.forEach((item, i) => {
+      const slot = document.createElement('div');
+      slot.className = 'backpack-slot';
+      if (item) {
+        slot.innerHTML = ITEM_ICONS[item.type] + `<span class="backpack-count">${item.count}</span>`;
+        slot.onclick = () => { moveBackpackToHotbar(i); };
+      }
+      gridEl.appendChild(slot);
+    });
+  }
+}
+
+function openBackpack() {
+  backpackOpen = true;
+  document.getElementById('backpack-overlay').style.display = 'flex';
+  renderInventoryUI();
+}
+function closeBackpack() {
+  backpackOpen = false;
+  document.getElementById('backpack-overlay').style.display = 'none';
+}
+document.getElementById('backpack-btn').addEventListener('click', () => {
+  backpackOpen ? closeBackpack() : openBackpack();
+});
+document.getElementById('backpack-close').addEventListener('click', closeBackpack);
+
 // ─── INPUT ────────────────────────────────────────────────────────────────────
 const keys = {};
 document.addEventListener('keydown', e => keys[e.code] = true);
@@ -492,7 +682,9 @@ document.addEventListener('keyup',   e => keys[e.code] = false);
 // Desktop mouse look
 let mouseLocked = false;
 canvas.addEventListener('click', () => {
-  if (!player.dead) canvas.requestPointerLock?.();
+  if (player.dead) return;
+  if (!mouseLocked) canvas.requestPointerLock?.();
+  else swingAxe();
 });
 document.addEventListener('pointerlockchange', () => {
   mouseLocked = document.pointerLockElement === canvas;
@@ -540,14 +732,17 @@ document.addEventListener('touchend', e => {
   }
 });
 
-// Look zone (camera drag)
+// Look zone (camera drag, or a quick tap to swing the axe)
 const lookZone = document.getElementById('look-zone');
-const lookState = { active: false, id: null, lx: 0, ly: 0 };
+const lookState = { active: false, id: null, lx: 0, ly: 0, startX: 0, startY: 0, startTime: 0, moved: 0 };
 lookZone.addEventListener('touchstart', e => {
   e.preventDefault();
   const t = e.changedTouches[0];
   lookState.active = true; lookState.id = t.identifier;
   lookState.lx = t.clientX; lookState.ly = t.clientY;
+  lookState.startX = t.clientX; lookState.startY = t.clientY;
+  lookState.startTime = Date.now();
+  lookState.moved = 0;
 }, { passive: false });
 
 document.addEventListener('touchmove', e => {
@@ -555,6 +750,7 @@ document.addEventListener('touchmove', e => {
     if (t.identifier === lookState.id) {
       const dx = t.clientX - lookState.lx;
       const dy = t.clientY - lookState.ly;
+      lookState.moved += Math.hypot(dx, dy);
       player.yaw   -= dx * 0.003;
       player.pitch -= dy * 0.003;
       player.pitch = Math.max(-1.2, Math.min(0.5, player.pitch));
@@ -565,20 +761,21 @@ document.addEventListener('touchmove', e => {
 
 document.addEventListener('touchend', e => {
   for (const t of e.changedTouches) {
-    if (t.identifier === lookState.id) lookState.active = false;
+    if (t.identifier === lookState.id) {
+      lookState.active = false;
+      const elapsed = Date.now() - lookState.startTime;
+      if (lookState.moved < 12 && elapsed < 350) swingAxe();
+    }
   }
 });
 
 // Action buttons
 document.getElementById('btn-interact').addEventListener('touchstart', e => { e.preventDefault(); doInteract(); }, { passive: false });
-document.getElementById('btn-attack').addEventListener('touchstart', e => { e.preventDefault(); doAttack(); }, { passive: false });
 document.addEventListener('keydown', e => {
   if (e.code === 'KeyE') doInteract();
-  if (e.code === 'Space') doAttack();
-  if (e.code === 'KeyF') doFire();
+  if (e.code === 'Space') swingAxe();
 });
 document.getElementById('btn-interact').addEventListener('click', doInteract);
-document.getElementById('btn-attack').addEventListener('click', doAttack);
 
 // ─── MESSAGES ────────────────────────────────────────────────────────────────
 let msgTimer = 0;
@@ -598,13 +795,9 @@ function doInteract() {
   for (let i = resources.length - 1; i >= 0; i--) {
     const r = resources[i];
     if (cam.distanceTo(r.position) < 3) {
-      if (r.userData.type === 'food') {
-        player.food = Math.min(99, player.food + r.userData.amount);
-        showMsg('🍄 Found mushrooms! +' + r.userData.amount);
-      } else if (r.userData.type === 'water') {
-        player.water = Math.min(99, player.water + r.userData.amount);
-        showMsg('💧 Collected water! +' + r.userData.amount);
-      }
+      const added = addToBackpack(r.userData.type, r.userData.amount);
+      if (!added) { showMsg('🎒 Backpack is full!'); return; }
+      showMsg((r.userData.type === 'food' ? '🍄 Found mushrooms! +' : '💧 Collected water! +') + r.userData.amount);
       scene.remove(r);
       resources.splice(i, 1);
       // respawn later
@@ -613,81 +806,34 @@ function doInteract() {
     }
   }
 
-  // Check trees
-  for (const tree of trees) {
-    if (cam.distanceTo(tree.position) < 3) {
-      if (tree.userData.wood > 0) {
-        const got = Math.min(tree.userData.wood, 2);
-        player.wood += got;
-        tree.userData.wood -= got;
-        showMsg('🪵 Chopped wood! +' + got);
-        if (tree.userData.wood <= 0) {
-          scene.remove(tree);
-          trees.splice(trees.indexOf(tree), 1);
-        }
-      } else {
-        showMsg('This tree is bare.');
-      }
-      return;
-    }
-  }
-
-  // Eat / drink from inventory
-  if (player.food > 0 && player.hunger < 80) {
-    const eat = Math.min(player.food, 25);
-    player.hunger = Math.min(100, player.hunger + eat);
-    player.food -= eat;
-    showMsg('🍄 Ate mushrooms! Hunger restored.');
-    return;
-  }
-  if (player.water > 0 && player.thirst < 80) {
-    const drink = Math.min(player.water, 25);
-    player.thirst = Math.min(100, player.thirst + drink);
-    player.water -= drink;
-    showMsg('💧 Drank water! Thirst quenched.');
-    return;
-  }
-  showMsg('Nothing nearby. (Tap ⚔️ to attack)');
+  showMsg('Nothing nearby to pick up. (Tap the screen to swing your axe)');
 }
 
-function doFire() {
-  if (player.dead) return;
-  if (player.wood >= 3) {
-    player.wood -= 3;
-    player.fires++;
-    buildCampfire(camera.position.x + Math.sin(player.yaw)*2, camera.position.z + Math.cos(player.yaw)*2);
-    showMsg('🔥 Built a campfire!');
-  } else {
-    showMsg('Need 3 wood to build a fire. (F key)');
-  }
-}
-
-function doAttack() {
+function swingAxe() {
   if (player.dead || player.attackCooldown > 0) return;
-  player.attackCooldown = 0.7;
+  player.attackCooldown = 0.5;
+  axeSwingTimer = 0.25;
 
   // Ray from camera
   const dir = new THREE.Vector3();
   camera.getWorldDirection(dir);
 
-  let hit = null, minDist = 5;
+  // 1. Nearby wolf in front of you?
+  let hitWolf = null, minDist = 4;
   for (const wolf of wolves) {
     const toWolf = wolf.position.clone().sub(camera.position);
     const dist = toWolf.length();
     if (dist < minDist) {
-      // dot product check
-      const dot = toWolf.normalize().dot(dir);
-      if (dot > 0.7) {
-        hit = wolf; minDist = dist;
-      }
+      const dot = toWolf.clone().normalize().dot(dir);
+      if (dot > 0.6) { hitWolf = wolf; minDist = dist; }
     }
   }
-  if (hit) {
-    hit.userData.hp--;
-    showMsg('⚔️ Hit the wolf!');
-    if (hit.userData.hp <= 0) {
-      scene.remove(hit);
-      wolves.splice(wolves.indexOf(hit), 1);
+  if (hitWolf) {
+    hitWolf.userData.hp--;
+    showMsg('🪓 Hit the wolf!');
+    if (hitWolf.userData.hp <= 0) {
+      scene.remove(hitWolf);
+      wolves.splice(wolves.indexOf(hitWolf), 1);
       player.kills++;
       player.score += 50;
       showMsg('💀 Wolf defeated! +50 pts');
@@ -696,14 +842,31 @@ function doAttack() {
         new THREE.SphereGeometry(0.3, 6, 6),
         new THREE.MeshToonMaterial({ color: 0xff5a3c, gradientMap: toonGradient })
       );
-      f.position.copy(hit.position).add(new THREE.Vector3(0, 0.3, 0));
+      f.position.copy(hitWolf.position).add(new THREE.Vector3(0, 0.3, 0));
       f.userData = { type: 'food', amount: 30, baseY: f.position.y, bobOffset: Math.random() * Math.PI * 2 };
       scene.add(f);
       resources.push(f);
     }
-  } else {
-    showMsg('⚔️ Swung at air!');
+    return;
   }
+
+  // 2. Nearby tree to chop?
+  for (const tree of trees) {
+    if (camera.position.distanceTo(tree.position) < 3 && tree.userData.wood > 0) {
+      const got = Math.min(tree.userData.wood, 2);
+      tree.userData.wood -= got;
+      const added = addToBackpack('wood', got);
+      if (added) showMsg('🪵 Chopped wood! +' + got);
+      else showMsg('🎒 Backpack is full! Couldn\'t carry the wood.');
+      if (tree.userData.wood <= 0) {
+        scene.remove(tree);
+        trees.splice(trees.indexOf(tree), 1);
+      }
+      return;
+    }
+  }
+
+  showMsg('🪓 Swung at nothing.');
 }
 
 // ─── HUD UPDATE ───────────────────────────────────────────────────────────────
@@ -711,11 +874,7 @@ function updateHUD() {
   document.getElementById('bar-hp').style.width     = player.hp + '%';
   document.getElementById('bar-hunger').style.width = player.hunger + '%';
   document.getElementById('bar-thirst').style.width = player.thirst + '%';
-  document.getElementById('inv-wood').textContent  = player.wood;
-  document.getElementById('inv-food').textContent  = player.food;
-  document.getElementById('inv-water').textContent = player.water;
-  document.getElementById('inv-fire').textContent  = player.fires;
-  document.getElementById('score-display').textContent = 'Score: ' + player.score;
+  document.getElementById('score-display').textContent = 'Score: ' + Math.floor(player.score);
   document.getElementById('kills-display').textContent = 'Wolves: ' + player.kills;
 }
 
@@ -859,6 +1018,17 @@ function tick() {
   // ── Attack cooldown
   if (player.attackCooldown > 0) player.attackCooldown -= dt;
 
+  // ── Axe swing animation
+  if (axeSwingTimer > 0) {
+    axeSwingTimer = Math.max(0, axeSwingTimer - dt);
+    const t = 1 - axeSwingTimer / 0.25;
+    axeGroup.rotation.x = 0.3 - Math.sin(t * Math.PI) * 0.9;
+    axeGroup.rotation.y = -0.5 - Math.sin(t * Math.PI) * 0.3;
+  } else {
+    axeGroup.rotation.x = 0.3;
+    axeGroup.rotation.y = -0.5;
+  }
+
   // ── Wolf AI
   const camPos = camera.position.clone();
   for (const wolf of wolves) {
@@ -897,7 +1067,8 @@ function tick() {
 }
 
 // ─── START ────────────────────────────────────────────────────────────────────
-showMsg('🌲 Survive the forest! Tap 🤚 to gather, ⚔️ to fight. Build fires (F key / 3 wood).');
+renderInventoryUI();
+showMsg('🌲 Survive the forest! Tap the screen to swing your axe, 🤚 to gather, 🎒 for your backpack.');
 tick();
 </script>
 </body>

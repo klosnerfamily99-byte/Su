@@ -66,6 +66,7 @@
     position: absolute; bottom: 1px; right: 3px;
     font-size: 9px; color: #ffe27a;
   }
+  .hand-icon { opacity: 0.5; font-size: 19px; }
 
   #backpack-overlay {
     position: fixed; inset: 0;
@@ -141,7 +142,7 @@
   }
   #crafting-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
   .craft-row {
-    display: flex; align-items: center; gap: 10px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
     background: rgba(0,0,0,0.3);
     border: 1px solid rgba(255,255,255,0.15);
     border-radius: 8px;
@@ -151,8 +152,8 @@
   .craft-row:active { background: rgba(255,255,255,0.12); }
   .craft-row.disabled { opacity: 0.45; }
   .craft-icon { font-size: 22px; width: 30px; text-align: center; }
-  .craft-name { color: white; font-size: 13px; flex: 1; }
-  .craft-cost { color: #ffe27a; font-size: 12px; white-space: nowrap; }
+  .craft-name { color: white; font-size: 13px; flex: 1; min-width: 90px; }
+  .craft-cost { color: #ffe27a; font-size: 12px; width: 100%; text-align: right; }
 
   #placement-controls {
     position: fixed; bottom: 158px; left: 50%; transform: translateX(-50%);
@@ -404,7 +405,7 @@ sunLight.shadow.camera.top = 50;
 sunLight.shadow.camera.bottom = -50;
 scene.add(sunLight);
 
-// ─── TERRAIN HEIGHT (hills in some places, flat in others) ───────────────────
+// ─── TERRAIN HEIGHT (hills in some places, flat in others) + lake basins ────
 const hillCenters = [];
 for (let i = 0; i < 9; i++) {
   const a = Math.random() * Math.PI * 2;
@@ -417,6 +418,17 @@ for (let i = 0; i < 9; i++) {
   });
 }
 
+const lakeCenters = [];
+for (let i = 0; i < 4; i++) {
+  const a = Math.random() * Math.PI * 2;
+  const d = 28 + Math.random() * 48;
+  lakeCenters.push({
+    x: Math.cos(a) * d,
+    z: Math.sin(a) * d,
+    radius: 8 + Math.random() * 5
+  });
+}
+
 function getTerrainHeight(x, z) {
   if (Math.hypot(x, z) < 5) return 0; // keep the spawn clearing flat
   let h = 0;
@@ -425,9 +437,18 @@ function getTerrainHeight(x, z) {
     const d2 = dx * dx + dz * dz;
     h += hill.height * Math.exp(-d2 / (hill.radius * hill.radius));
   }
+  for (const lake of lakeCenters) {
+    const dx = x - lake.x, dz = z - lake.z;
+    const d2 = dx * dx + dz * dz;
+    h -= 1.4 * Math.exp(-d2 / (lake.radius * lake.radius)); // carve a basin
+  }
   // tiny ripple so "flat" ground still feels natural, not billiard-table flat
   h += Math.sin(x * 0.08) * Math.cos(z * 0.08) * 0.2;
   return h;
+}
+
+function isInLake(x, z) {
+  return lakeCenters.some(l => Math.hypot(x - l.x, z - l.z) < l.radius * 0.85);
 }
 
 // ─── GROUND ───────────────────────────────────────────────────────────────────
@@ -445,7 +466,19 @@ ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
 
-// ─── GRASS (scattered everywhere, following the terrain) ────────────────────
+// ─── LAKES (real water — drinking from it requires a crafted purifier) ──────
+const lakeMat = new THREE.MeshToonMaterial({
+  color: 0x33b8d6, gradientMap: toonGradient, transparent: true, opacity: 0.85
+});
+for (const lake of lakeCenters) {
+  const mesh = new THREE.Mesh(new THREE.CircleGeometry(lake.radius * 0.8, 24), lakeMat.clone());
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set(lake.x, getTerrainHeight(lake.x, lake.z) + 0.9, lake.z);
+  scene.add(mesh);
+  lake.mesh = mesh;
+}
+
+// ─── GRASS (scattered everywhere, following the terrain, skipping lakes) ────
 const grassGeo = new THREE.ConeGeometry(0.045, 0.32, 3);
 grassGeo.translate(0, 0.16, 0);
 const grassMat = new THREE.MeshToonMaterial({ color: 0x4fc14f, gradientMap: toonGradient, side: THREE.DoubleSide });
@@ -455,8 +488,12 @@ grassMesh.castShadow = false;
 grassMesh.receiveShadow = false;
 const grassDummy = new THREE.Object3D();
 for (let i = 0; i < GRASS_COUNT; i++) {
-  const gx = (Math.random() - 0.5) * 178;
-  const gz = (Math.random() - 0.5) * 178;
+  let gx, gz, tries = 0;
+  do {
+    gx = (Math.random() - 0.5) * 178;
+    gz = (Math.random() - 0.5) * 178;
+    tries++;
+  } while (isInLake(gx, gz) && tries < 5);
   const gy = getTerrainHeight(gx, gz);
   grassDummy.position.set(gx, gy, gz);
   grassDummy.rotation.y = Math.random() * Math.PI * 2;
@@ -581,24 +618,27 @@ function spawnResource(type, count) {
     const dist  = 5 + Math.random() * 50;
     const x = Math.cos(angle) * dist, z = Math.sin(angle) * dist;
     const groundY = getTerrainHeight(x, z);
-    let mesh;
+    let mesh, amount;
     if (type === 'food') {
       mesh = new THREE.Mesh(
         new THREE.SphereGeometry(0.3, 6, 6),
         new THREE.MeshToonMaterial({ color: 0xff5a3c, gradientMap: toonGradient })
       );
       mesh.position.set(x, groundY + 0.3, z);
-    } else if (type === 'water') {
+      amount = 20 + Math.floor(Math.random() * 20);
+    } else if (type === 'leaves') {
       mesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.4, 0.4, 0.2, 8),
-        new THREE.MeshToonMaterial({ color: 0x33d6e8, gradientMap: toonGradient })
+        new THREE.IcosahedronGeometry(0.22, 0),
+        new THREE.MeshToonMaterial({ color: 0x9fe066, gradientMap: toonGradient })
       );
-      mesh.position.set(x, groundY + 0.1, z);
+      mesh.scale.set(1, 0.35, 1);
+      mesh.position.set(x, groundY + 0.12, z);
+      amount = 3 + Math.floor(Math.random() * 4);
     }
     if (mesh) {
       mesh.castShadow = true;
       mesh.userData = {
-        type, amount: 20 + Math.floor(Math.random() * 20),
+        type, amount,
         baseY: mesh.position.y, bobOffset: Math.random() * Math.PI * 2
       };
       scene.add(mesh);
@@ -607,7 +647,7 @@ function spawnResource(type, count) {
   }
 }
 spawnResource('food', 15);
-spawnResource('water', 10);
+spawnResource('leaves', 18);
 
 // ─── CAMPFIRE ─────────────────────────────────────────────────────────────────
 const fires = [];
@@ -711,7 +751,7 @@ function buildCraftingTable(x, z) {
   scene.add(g);
   return g;
 }
-const craftingTable = buildCraftingTable(4, 4);
+const craftingTables = [];
 
 // ─── WOLVES ───────────────────────────────────────────────────────────────────
 const wolves = [];
@@ -759,18 +799,20 @@ const player = {
   velocity: new THREE.Vector3(),
   onGround: true,
   attackCooldown: 0,
+  selectedSlot: 0, // which hotbar slot is "in your hand" right now
 };
 
 // ─── INVENTORY: 50-slot backpack (storage) + 7-slot hotbar (usable) ──────────
 const backpack = new Array(50).fill(null);
 const hotbar = new Array(7).fill(null);
-hotbar[0] = { type: 'axe', count: 1 }; // you always start with your axe
+// You start empty-handed (bare fists) with just a crafting table to set up camp.
 
 const ITEM_ICONS = {
-  axe: '🪓', wood: '🪵', food: '🍄', water: '💧',
-  campfire: '🔥', wall: '🧱', ceiling: '⬜', floor: '🟫'
+  axe: '🪓', wood: '🪵', food: '🍄', leaves: '🍃', water: '💧',
+  purifier: '🚰', poultice: '🩹',
+  campfire: '🔥', wall: '🧱', ceiling: '⬜', floor: '🟫', crafting_table: '🔨'
 };
-const PLACEABLE_TYPES = ['campfire', 'wall', 'ceiling', 'floor'];
+const PLACEABLE_TYPES = ['campfire', 'wall', 'ceiling', 'floor', 'crafting_table'];
 let backpackOpen = false;
 let craftingOpen = false;
 
@@ -835,9 +877,31 @@ function moveBackpackToHotbar(i) {
 
 function tapHotbarSlot(i) {
   const item = hotbar[i];
-  if (!item) return;
-  if (item.type === 'axe') { showMsg('🪓 Your axe — tap the screen to swing it!'); return; }
-  if (item.type === 'food') {
+
+  if (!item) {
+    if (placingItem) teardownPlacement();
+    player.selectedSlot = i;
+    renderInventoryUI();
+    showMsg('✊ Bare hands ready.');
+    return;
+  }
+
+  if (PLACEABLE_TYPES.includes(item.type)) {
+    if (placingItem && placingItem.hotbarIndex === i) teardownPlacement();
+    else startPlacing(i);
+    player.selectedSlot = i;
+    renderInventoryUI();
+    return;
+  }
+
+  if (placingItem) teardownPlacement();
+  player.selectedSlot = i;
+
+  if (item.type === 'axe') {
+    showMsg('🪓 Axe equipped — tap the screen to swing it!');
+  } else if (item.type === 'purifier') {
+    showMsg('🚰 Purifier equipped. Walk up to a lake and tap 🤚 to draw clean water.');
+  } else if (item.type === 'food') {
     player.hunger = Math.min(100, player.hunger + 25);
     item.count--;
     if (item.count <= 0) hotbar[i] = null;
@@ -846,11 +910,14 @@ function tapHotbarSlot(i) {
     player.thirst = Math.min(100, player.thirst + 25);
     item.count--;
     if (item.count <= 0) hotbar[i] = null;
-    showMsg('💧 Drank water.');
-  } else if (item.type === 'wood') {
-    showMsg('🪵 Take this to the crafting table to build things!');
-  } else if (PLACEABLE_TYPES.includes(item.type)) {
-    startPlacing(i);
+    showMsg('💧 Drank clean water.');
+  } else if (item.type === 'poultice') {
+    player.hp = Math.min(100, player.hp + 40);
+    item.count--;
+    if (item.count <= 0) hotbar[i] = null;
+    showMsg('🩹 Used a healing poultice. +40 HP');
+  } else if (item.type === 'wood' || item.type === 'leaves') {
+    showMsg(ITEM_ICONS[item.type] + ' Take this to a crafting table to build things!');
   }
   renderInventoryUI();
 }
@@ -860,10 +927,11 @@ function renderInventoryUI() {
   hotbarEl.innerHTML = '';
   hotbar.forEach((item, i) => {
     const slot = document.createElement('div');
-    slot.className = 'hotbar-slot' + (i === 0 ? ' equipped' : '');
+    slot.className = 'hotbar-slot' + (i === player.selectedSlot ? ' equipped' : '');
     if (item) {
-      slot.innerHTML = ITEM_ICONS[item.type] +
-        (item.type !== 'axe' ? `<span class="hotbar-count">${item.count}</span>` : '');
+      slot.innerHTML = ITEM_ICONS[item.type] + `<span class="hotbar-count">${item.count}</span>`;
+    } else {
+      slot.innerHTML = '<span class="hand-icon">✊</span>';
     }
     slot.onclick = () => tapHotbarSlot(i);
     hotbarEl.appendChild(slot);
@@ -900,10 +968,13 @@ document.getElementById('backpack-close').addEventListener('click', closeBackpac
 
 // ─── CRAFTING ─────────────────────────────────────────────────────────────────
 const RECIPES = [
-  { type: 'campfire', name: 'Campfire',    icon: '🔥', cost: { wood: 3 } },
-  { type: 'wall',     name: 'Wood Wall',    icon: '🧱', cost: { wood: 4 } },
-  { type: 'ceiling',  name: 'Wood Ceiling', icon: '⬜', cost: { wood: 4 } },
-  { type: 'floor',    name: 'Wood Floor',   icon: '🟫', cost: { wood: 3 } },
+  { type: 'axe',      name: 'Axe',             icon: '🪓', cost: { wood: 4 } },
+  { type: 'purifier', name: 'Water Purifier',  icon: '🚰', cost: { wood: 3, leaves: 4 } },
+  { type: 'poultice', name: 'Healing Poultice', icon: '🩹', cost: { food: 3, leaves: 2 } },
+  { type: 'campfire', name: 'Campfire',         icon: '🔥', cost: { wood: 3 } },
+  { type: 'wall',     name: 'Wood Wall',        icon: '🧱', cost: { wood: 4 } },
+  { type: 'ceiling',  name: 'Wood Ceiling',     icon: '⬜', cost: { wood: 4 } },
+  { type: 'floor',    name: 'Wood Floor',       icon: '🟫', cost: { wood: 3 } },
 ];
 
 function craftItem(recipe) {
@@ -924,15 +995,16 @@ function renderCraftingUI() {
   const listEl = document.getElementById('crafting-list');
   listEl.innerHTML = '';
   RECIPES.forEach(r => {
-    const resType = Object.keys(r.cost)[0];
-    const need = r.cost[resType];
-    const have = getTotalCount(resType);
+    const haveEnough = Object.entries(r.cost).every(([t, amt]) => getTotalCount(t) >= amt);
+    const costStr = Object.entries(r.cost)
+      .map(([t, amt]) => `${ITEM_ICONS[t]} ${getTotalCount(t)}/${amt}`)
+      .join('&nbsp;&nbsp;');
     const row = document.createElement('div');
-    row.className = 'craft-row' + (have < need ? ' disabled' : '');
+    row.className = 'craft-row' + (haveEnough ? '' : ' disabled');
     row.innerHTML = `
       <span class="craft-icon">${r.icon}</span>
       <span class="craft-name">${r.name}</span>
-      <span class="craft-cost">${ITEM_ICONS[resType]} ${have}/${need}</span>
+      <span class="craft-cost">${costStr}</span>
     `;
     row.onclick = () => craftItem(r);
     listEl.appendChild(row);
@@ -960,6 +1032,7 @@ function createGhost(type) {
   if (type === 'campfire') geo = new THREE.CylinderGeometry(0.3, 0.35, 0.4, 8);
   else if (type === 'wall') geo = new THREE.BoxGeometry(2, 2, 0.15);
   else if (type === 'ceiling') geo = new THREE.BoxGeometry(2, 0.15, 2);
+  else if (type === 'crafting_table') geo = new THREE.BoxGeometry(1.6, 0.9, 1.0);
   else geo = new THREE.BoxGeometry(2, 0.1, 2); // floor
   const mesh = new THREE.Mesh(geo, ghostMat);
   scene.add(mesh);
@@ -989,6 +1062,7 @@ document.getElementById('place-confirm').addEventListener('click', () => {
   else if (placingItem.type === 'wall') buildWall(px, pz, ghostMesh.rotation.y);
   else if (placingItem.type === 'ceiling') buildCeiling(px, pz);
   else if (placingItem.type === 'floor') buildFloor(px, pz);
+  else if (placingItem.type === 'crafting_table') craftingTables.push(buildCraftingTable(px, pz));
 
   const slot = hotbar[placingItem.hotbarIndex];
   if (slot) { slot.count--; if (slot.count <= 0) hotbar[placingItem.hotbarIndex] = null; }
@@ -1011,7 +1085,7 @@ let mouseLocked = false;
 canvas.addEventListener('click', () => {
   if (player.dead) return;
   if (!mouseLocked) canvas.requestPointerLock?.();
-  else if (!placingItem) swingAxe();
+  else if (!placingItem) swingTool();
 });
 document.addEventListener('pointerlockchange', () => {
   mouseLocked = document.pointerLockElement === canvas;
@@ -1091,7 +1165,7 @@ document.addEventListener('touchend', e => {
     if (t.identifier === lookState.id) {
       lookState.active = false;
       const elapsed = Date.now() - lookState.startTime;
-      if (!placingItem && lookState.moved < 12 && elapsed < 350) swingAxe();
+      if (!placingItem && lookState.moved < 12 && elapsed < 350) swingTool();
     }
   }
 });
@@ -1100,7 +1174,7 @@ document.addEventListener('touchend', e => {
 document.getElementById('btn-interact').addEventListener('touchstart', e => { e.preventDefault(); doInteract(); }, { passive: false });
 document.addEventListener('keydown', e => {
   if (e.code === 'KeyE') doInteract();
-  if (e.code === 'Space' && !placingItem) swingAxe();
+  if (e.code === 'Space' && !placingItem) swingTool();
 });
 document.getElementById('btn-interact').addEventListener('click', doInteract);
 
@@ -1120,9 +1194,24 @@ function doInteract() {
   const cam = camera.position;
 
   // Crafting table nearby?
-  if (cam.distanceTo(craftingTable.position) < 3.5) {
-    openCrafting();
-    return;
+  for (const table of craftingTables) {
+    if (cam.distanceTo(table.position) < 3.5) { openCrafting(); return; }
+  }
+
+  // Lake nearby?
+  for (const lake of lakeCenters) {
+    const d = Math.hypot(cam.x - lake.x, cam.z - lake.z);
+    if (d < lake.radius + 2) {
+      if (getTotalCount('purifier') > 0) {
+        const amount = 20 + Math.floor(Math.random() * 15);
+        const added = addItem('water', amount);
+        if (!added) { showMsg('🎒 Inventory is full!'); return; }
+        showMsg('🚰 Purified ' + amount + ' water from the lake!');
+      } else {
+        showMsg('💧 This lake water isn\'t safe to drink. Craft a Water Purifier first!');
+      }
+      return;
+    }
   }
 
   // Check resources
@@ -1131,7 +1220,8 @@ function doInteract() {
     if (cam.distanceTo(r.position) < 3) {
       const added = addItem(r.userData.type, r.userData.amount);
       if (!added) { showMsg('🎒 Backpack is full!'); return; }
-      showMsg((r.userData.type === 'food' ? '🍄 Found mushrooms! +' : '💧 Collected water! +') + r.userData.amount);
+      const labels = { food: '🍄 Found mushrooms! +', leaves: '🍃 Gathered leaves! +' };
+      showMsg(labels[r.userData.type] + r.userData.amount);
       scene.remove(r);
       resources.splice(i, 1);
       // respawn later
@@ -1140,13 +1230,16 @@ function doInteract() {
     }
   }
 
-  showMsg('Nothing nearby to pick up. (Tap the screen to swing your axe)');
+  showMsg('Nothing nearby to pick up. (Tap the screen to use your hand or axe)');
 }
 
-function swingAxe() {
+function swingTool() {
   if (player.dead || player.attackCooldown > 0) return;
   player.attackCooldown = 0.5;
   axeSwingTimer = 0.25;
+
+  const equipped = hotbar[player.selectedSlot];
+  const usingAxe = !!(equipped && equipped.type === 'axe');
 
   // Ray from camera
   const dir = new THREE.Vector3();
@@ -1163,8 +1256,8 @@ function swingAxe() {
     }
   }
   if (hitWolf) {
-    hitWolf.userData.hp--;
-    showMsg('🪓 Hit the wolf!');
+    hitWolf.userData.hp -= usingAxe ? 1 : 0.5;
+    showMsg(usingAxe ? '🪓 Hit the wolf!' : '✊ Punched the wolf!');
     if (hitWolf.userData.hp <= 0) {
       scene.remove(hitWolf);
       wolves.splice(wolves.indexOf(hitWolf), 1);
@@ -1187,10 +1280,10 @@ function swingAxe() {
   // 2. Nearby tree to chop?
   for (const tree of trees) {
     if (camera.position.distanceTo(tree.position) < 3 && tree.userData.wood > 0) {
-      const got = Math.min(tree.userData.wood, 2);
+      const got = Math.min(tree.userData.wood, usingAxe ? 2 : 1);
       tree.userData.wood -= got;
       const added = addItem('wood', got);
-      if (added) showMsg('🪵 Chopped wood! +' + got);
+      if (added) showMsg((usingAxe ? '🪓' : '✊') + ' Chopped wood! +' + got);
       else showMsg('🎒 Backpack is full! Couldn\'t carry the wood.');
       if (tree.userData.wood <= 0) {
         scene.remove(tree);
@@ -1200,7 +1293,7 @@ function swingAxe() {
     }
   }
 
-  showMsg('🪓 Swung at nothing.');
+  showMsg(usingAxe ? '🪓 Swung at nothing.' : '✊ Swung at nothing.');
 }
 
 // ─── HUD UPDATE ───────────────────────────────────────────────────────────────
@@ -1362,6 +1455,9 @@ function tick() {
       ghostMesh.position.set(px, py + 2.2, pz);
     } else if (placingItem.type === 'floor') {
       ghostMesh.position.set(px, py + 0.05, pz);
+    } else if (placingItem.type === 'crafting_table') {
+      ghostMesh.position.set(px, py + 0.45, pz);
+      ghostMesh.rotation.y = player.yaw;
     } else { // campfire
       ghostMesh.position.set(px, py + 0.2, pz);
     }
@@ -1370,7 +1466,8 @@ function tick() {
   // ── Attack cooldown
   if (player.attackCooldown > 0) player.attackCooldown -= dt;
 
-  // ── Axe swing animation
+  // ── Axe swing animation (only visible while the axe is equipped)
+  axeGroup.visible = !!(hotbar[player.selectedSlot] && hotbar[player.selectedSlot].type === 'axe');
   if (axeSwingTimer > 0) {
     axeSwingTimer = Math.max(0, axeSwingTimer - dt);
     const t = 1 - axeSwingTimer / 0.25;
@@ -1409,12 +1506,17 @@ function tick() {
   player.score += dt;
 
   // ── Crafting table proximity hint
-  const nearTable = camera.position.distanceTo(craftingTable.position) < 3.5;
+  const nearTable = craftingTables.some(t => camera.position.distanceTo(t.position) < 3.5);
   if (nearTable && !nearCraftingHinted) {
     showMsg('🔨 Tap 🤚 to open the crafting table');
     nearCraftingHinted = true;
   } else if (!nearTable) {
     nearCraftingHinted = false;
+  }
+
+  // ── Gentle lake shimmer
+  for (const lake of lakeCenters) {
+    lake.mesh.material.opacity = 0.78 + Math.sin(Date.now() * 0.001 + lake.x) * 0.07;
   }
 
   // ── Message fade
@@ -1428,8 +1530,9 @@ function tick() {
 }
 
 // ─── START ────────────────────────────────────────────────────────────────────
+addItem('crafting_table', 1);
 renderInventoryUI();
-showMsg('🌲 Survive the forest! Chop wood with your axe, then visit the 🔨 crafting table to build things.');
+showMsg('🌲 Punch trees for wood, then place your 🔨 crafting table from the backpack to start building!');
 tick();
 </script>
 </body>

@@ -112,6 +112,62 @@
     font-size: 9px; color: #ffe27a;
   }
 
+  #crafting-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: none; align-items: center; justify-content: center;
+    z-index: 50;
+  }
+  #crafting-panel {
+    width: min(320px, 90vw);
+    max-height: 78vh;
+    background: linear-gradient(160deg, #5e3c1c, #3c2710);
+    border: 2px solid rgba(255,210,140,0.4);
+    border-radius: 12px;
+    padding: 12px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  #crafting-header {
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  #crafting-title {
+    color: #ffe27a; font-size: 14px; letter-spacing: 2px; text-transform: uppercase;
+  }
+  #crafting-close {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: rgba(255,255,255,0.1); color: white;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  #crafting-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+  .craft-row {
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    padding: 8px 10px;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .craft-row:active { background: rgba(255,255,255,0.12); }
+  .craft-row.disabled { opacity: 0.45; }
+  .craft-icon { font-size: 22px; width: 30px; text-align: center; }
+  .craft-name { color: white; font-size: 13px; flex: 1; }
+  .craft-cost { color: #ffe27a; font-size: 12px; white-space: nowrap; }
+
+  #placement-controls {
+    position: fixed; bottom: 158px; left: 50%; transform: translateX(-50%);
+    display: none; gap: 18px; z-index: 25;
+  }
+  .place-btn {
+    width: 54px; height: 54px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; color: white;
+    border: 2px solid rgba(255,255,255,0.45);
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  #place-confirm { background: rgba(35,140,70,0.85); }
+  #place-cancel  { background: rgba(150,40,40,0.85); }
+
   /* Mobile controls */
   #joystick-zone {
     position: fixed; bottom: 20px; left: 20px;
@@ -237,6 +293,21 @@
     </div>
     <div id="backpack-grid"></div>
   </div>
+</div>
+
+<div id="crafting-overlay">
+  <div id="crafting-panel">
+    <div id="crafting-header">
+      <span id="crafting-title">Crafting Table</span>
+      <div id="crafting-close">✕</div>
+    </div>
+    <div id="crafting-list"></div>
+  </div>
+</div>
+
+<div id="placement-controls">
+  <div class="place-btn" id="place-cancel">✕</div>
+  <div class="place-btn" id="place-confirm">✓</div>
 </div>
 
 <div id="crosshair"></div>
@@ -569,8 +640,78 @@ function buildCampfire(x, z) {
   flameCore.position.y = 0.35;
   g.add(flameCore);
   g.position.set(x, getTerrainHeight(x, z), z);
+  scene.add(g);
+  fires.push({ group: g, light: fl, flame, flameCore });
   return g;
 }
+
+// ─── BUILDABLE STRUCTURES ─────────────────────────────────────────────────────
+const buildMat = new THREE.MeshToonMaterial({ color: 0x8a5a2e, gradientMap: toonGradient });
+
+function buildWall(x, z, yaw) {
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 0.15), buildMat);
+  wall.position.set(x, getTerrainHeight(x, z) + 1.0, z);
+  wall.rotation.y = yaw;
+  wall.castShadow = true;
+  scene.add(wall);
+  return wall;
+}
+
+function buildCeiling(x, z) {
+  const ceiling = new THREE.Mesh(new THREE.BoxGeometry(2, 0.15, 2), buildMat);
+  ceiling.position.set(x, getTerrainHeight(x, z) + 2.2, z);
+  ceiling.castShadow = true;
+  scene.add(ceiling);
+  return ceiling;
+}
+
+function buildFloor(x, z) {
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(2, 0.1, 2), buildMat);
+  floor.position.set(x, getTerrainHeight(x, z) + 0.05, z);
+  floor.receiveShadow = true;
+  scene.add(floor);
+  return floor;
+}
+
+// ─── CRAFTING TABLE ───────────────────────────────────────────────────────────
+function makeIconSprite(emoji) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d');
+  ctx.font = '46px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(emoji, 32, 36);
+  const tex = new THREE.CanvasTexture(c);
+  return new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+}
+
+function buildCraftingTable(x, z) {
+  const g = new THREE.Group();
+  const tableMat = new THREE.MeshToonMaterial({ color: 0x8a5a2e, gradientMap: toonGradient });
+  const top = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.15, 1.0), tableMat);
+  top.position.y = 0.9;
+  top.castShadow = true;
+  g.add(top);
+  const legSpots = [[-0.7, -0.4], [0.7, -0.4], [-0.7, 0.4], [0.7, 0.4]];
+  for (const [lx, lz] of legSpots) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.85, 0.12), tableMat);
+    leg.position.set(lx, 0.45, lz);
+    g.add(leg);
+  }
+  const toolMat = new THREE.MeshToonMaterial({ color: 0xaaaaaa, gradientMap: toonGradient });
+  const tool = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.45), toolMat);
+  tool.position.set(0.3, 0.99, 0);
+  g.add(tool);
+  const icon = makeIconSprite('🔨');
+  icon.scale.set(0.8, 0.8, 1);
+  icon.position.set(0, 1.7, 0);
+  g.add(icon);
+  g.position.set(x, getTerrainHeight(x, z), z);
+  scene.add(g);
+  return g;
+}
+const craftingTable = buildCraftingTable(4, 4);
 
 // ─── WOLVES ───────────────────────────────────────────────────────────────────
 const wolves = [];
@@ -594,6 +735,8 @@ function spawnWolf(x, z) {
     g.add(leg);
   }
   g.position.set(x, getTerrainHeight(x, z), z);
+  g.castShadow = true;
+  g.userData = { hp: 3, speed: 2 + Math.random(), alertRange: 15 };
   scene.add(g);
   wolves.push(g);
   return g;
@@ -623,17 +766,58 @@ const backpack = new Array(50).fill(null);
 const hotbar = new Array(7).fill(null);
 hotbar[0] = { type: 'axe', count: 1 }; // you always start with your axe
 
-const ITEM_ICONS = { axe: '🪓', wood: '🪵', food: '🍄', water: '💧' };
+const ITEM_ICONS = {
+  axe: '🪓', wood: '🪵', food: '🍄', water: '💧',
+  campfire: '🔥', wall: '🧱', ceiling: '⬜', floor: '🟫'
+};
+const PLACEABLE_TYPES = ['campfire', 'wall', 'ceiling', 'floor'];
 let backpackOpen = false;
+let craftingOpen = false;
 
-function addToBackpack(type, amount) {
-  let slot = backpack.findIndex(s => s && s.type === type);
-  if (slot === -1) slot = backpack.findIndex(s => s === null);
-  if (slot === -1) return false; // backpack full
-  if (backpack[slot]) backpack[slot].count += amount;
-  else backpack[slot] = { type, count: amount };
+// New items prefer an existing matching stack (hotbar first, then backpack),
+// then an empty hotbar slot, then an empty backpack slot.
+function addItem(type, amount) {
+  let slot = hotbar.findIndex(h => h && h.type === type);
+  if (slot !== -1) { hotbar[slot].count += amount; renderInventoryUI(); return true; }
+
+  slot = backpack.findIndex(s => s && s.type === type);
+  if (slot !== -1) { backpack[slot].count += amount; renderInventoryUI(); return true; }
+
+  slot = hotbar.findIndex(h => h === null);
+  if (slot !== -1) { hotbar[slot] = { type, count: amount }; renderInventoryUI(); return true; }
+
+  slot = backpack.findIndex(s => s === null);
+  if (slot !== -1) { backpack[slot] = { type, count: amount }; renderInventoryUI(); return true; }
+
+  return false; // everything is full
+}
+
+function getTotalCount(type) {
+  let total = 0;
+  for (const h of hotbar) if (h && h.type === type) total += h.count;
+  for (const b of backpack) if (b && b.type === type) total += b.count;
+  return total;
+}
+
+function consumeItem(type, amount) {
+  let remaining = amount;
+  for (let i = 0; i < hotbar.length && remaining > 0; i++) {
+    const h = hotbar[i];
+    if (h && h.type === type) {
+      const take = Math.min(h.count, remaining);
+      h.count -= take; remaining -= take;
+      if (h.count <= 0) hotbar[i] = null;
+    }
+  }
+  for (let i = 0; i < backpack.length && remaining > 0; i++) {
+    const b = backpack[i];
+    if (b && b.type === type) {
+      const take = Math.min(b.count, remaining);
+      b.count -= take; remaining -= take;
+      if (b.count <= 0) backpack[i] = null;
+    }
+  }
   renderInventoryUI();
-  return true;
 }
 
 function moveBackpackToHotbar(i) {
@@ -664,14 +848,9 @@ function tapHotbarSlot(i) {
     if (item.count <= 0) hotbar[i] = null;
     showMsg('💧 Drank water.');
   } else if (item.type === 'wood') {
-    if (item.count >= 3) {
-      item.count -= 3;
-      if (item.count <= 0) hotbar[i] = null;
-      buildCampfire(camera.position.x + Math.sin(player.yaw) * 2, camera.position.z + Math.cos(player.yaw) * 2);
-      showMsg('🔥 Built a campfire!');
-    } else {
-      showMsg('Need 3 wood in this stack to build a fire.');
-    }
+    showMsg('🪵 Take this to the crafting table to build things!');
+  } else if (PLACEABLE_TYPES.includes(item.type)) {
+    startPlacing(i);
   }
   renderInventoryUI();
 }
@@ -719,6 +898,109 @@ document.getElementById('backpack-btn').addEventListener('click', () => {
 });
 document.getElementById('backpack-close').addEventListener('click', closeBackpack);
 
+// ─── CRAFTING ─────────────────────────────────────────────────────────────────
+const RECIPES = [
+  { type: 'campfire', name: 'Campfire',    icon: '🔥', cost: { wood: 3 } },
+  { type: 'wall',     name: 'Wood Wall',    icon: '🧱', cost: { wood: 4 } },
+  { type: 'ceiling',  name: 'Wood Ceiling', icon: '⬜', cost: { wood: 4 } },
+  { type: 'floor',    name: 'Wood Floor',   icon: '🟫', cost: { wood: 3 } },
+];
+
+function craftItem(recipe) {
+  for (const [resType, amt] of Object.entries(recipe.cost)) {
+    if (getTotalCount(resType) < amt) {
+      showMsg(`Need ${amt} ${ITEM_ICONS[resType]} (have ${getTotalCount(resType)})`);
+      return;
+    }
+  }
+  for (const [resType, amt] of Object.entries(recipe.cost)) consumeItem(resType, amt);
+  const added = addItem(recipe.type, 1);
+  if (!added) showMsg('🎒 No room to carry it! Craft cancelled.');
+  else showMsg(recipe.icon + ' Crafted ' + recipe.name + '!');
+  renderCraftingUI();
+}
+
+function renderCraftingUI() {
+  const listEl = document.getElementById('crafting-list');
+  listEl.innerHTML = '';
+  RECIPES.forEach(r => {
+    const resType = Object.keys(r.cost)[0];
+    const need = r.cost[resType];
+    const have = getTotalCount(resType);
+    const row = document.createElement('div');
+    row.className = 'craft-row' + (have < need ? ' disabled' : '');
+    row.innerHTML = `
+      <span class="craft-icon">${r.icon}</span>
+      <span class="craft-name">${r.name}</span>
+      <span class="craft-cost">${ITEM_ICONS[resType]} ${have}/${need}</span>
+    `;
+    row.onclick = () => craftItem(r);
+    listEl.appendChild(row);
+  });
+}
+
+function openCrafting() {
+  craftingOpen = true;
+  document.getElementById('crafting-overlay').style.display = 'flex';
+  renderCraftingUI();
+}
+function closeCrafting() {
+  craftingOpen = false;
+  document.getElementById('crafting-overlay').style.display = 'none';
+}
+document.getElementById('crafting-close').addEventListener('click', closeCrafting);
+
+// ─── PLACEMENT (equip a built item, preview it in front of you, then confirm) ─
+let placingItem = null; // { type, hotbarIndex }
+let ghostMesh = null;
+const ghostMat = new THREE.MeshBasicMaterial({ color: 0x88ffaa, transparent: true, opacity: 0.45, depthWrite: false });
+
+function createGhost(type) {
+  let geo;
+  if (type === 'campfire') geo = new THREE.CylinderGeometry(0.3, 0.35, 0.4, 8);
+  else if (type === 'wall') geo = new THREE.BoxGeometry(2, 2, 0.15);
+  else if (type === 'ceiling') geo = new THREE.BoxGeometry(2, 0.15, 2);
+  else geo = new THREE.BoxGeometry(2, 0.1, 2); // floor
+  const mesh = new THREE.Mesh(geo, ghostMat);
+  scene.add(mesh);
+  return mesh;
+}
+
+function startPlacing(i) {
+  const item = hotbar[i];
+  if (!item) return;
+  if (placingItem) teardownPlacement();
+  placingItem = { type: item.type, hotbarIndex: i };
+  ghostMesh = createGhost(item.type);
+  document.getElementById('placement-controls').style.display = 'flex';
+  showMsg('Move into position, then confirm placement.');
+}
+
+function teardownPlacement() {
+  if (ghostMesh) { scene.remove(ghostMesh); ghostMesh = null; }
+  placingItem = null;
+  document.getElementById('placement-controls').style.display = 'none';
+}
+
+document.getElementById('place-confirm').addEventListener('click', () => {
+  if (!placingItem || !ghostMesh) return;
+  const px = ghostMesh.position.x, pz = ghostMesh.position.z;
+  if (placingItem.type === 'campfire') buildCampfire(px, pz);
+  else if (placingItem.type === 'wall') buildWall(px, pz, ghostMesh.rotation.y);
+  else if (placingItem.type === 'ceiling') buildCeiling(px, pz);
+  else if (placingItem.type === 'floor') buildFloor(px, pz);
+
+  const slot = hotbar[placingItem.hotbarIndex];
+  if (slot) { slot.count--; if (slot.count <= 0) hotbar[placingItem.hotbarIndex] = null; }
+  teardownPlacement();
+  renderInventoryUI();
+  showMsg('✅ Placed!');
+});
+document.getElementById('place-cancel').addEventListener('click', () => {
+  teardownPlacement();
+  showMsg('Placement cancelled.');
+});
+
 // ─── INPUT ────────────────────────────────────────────────────────────────────
 const keys = {};
 document.addEventListener('keydown', e => keys[e.code] = true);
@@ -729,7 +1011,7 @@ let mouseLocked = false;
 canvas.addEventListener('click', () => {
   if (player.dead) return;
   if (!mouseLocked) canvas.requestPointerLock?.();
-  else swingAxe();
+  else if (!placingItem) swingAxe();
 });
 document.addEventListener('pointerlockchange', () => {
   mouseLocked = document.pointerLockElement === canvas;
@@ -809,7 +1091,7 @@ document.addEventListener('touchend', e => {
     if (t.identifier === lookState.id) {
       lookState.active = false;
       const elapsed = Date.now() - lookState.startTime;
-      if (lookState.moved < 12 && elapsed < 350) swingAxe();
+      if (!placingItem && lookState.moved < 12 && elapsed < 350) swingAxe();
     }
   }
 });
@@ -818,12 +1100,13 @@ document.addEventListener('touchend', e => {
 document.getElementById('btn-interact').addEventListener('touchstart', e => { e.preventDefault(); doInteract(); }, { passive: false });
 document.addEventListener('keydown', e => {
   if (e.code === 'KeyE') doInteract();
-  if (e.code === 'Space') swingAxe();
+  if (e.code === 'Space' && !placingItem) swingAxe();
 });
 document.getElementById('btn-interact').addEventListener('click', doInteract);
 
 // ─── MESSAGES ────────────────────────────────────────────────────────────────
 let msgTimer = 0;
+let nearCraftingHinted = false;
 function showMsg(text) {
   const el = document.getElementById('message');
   el.textContent = text;
@@ -836,11 +1119,17 @@ function doInteract() {
   if (player.dead) return;
   const cam = camera.position;
 
+  // Crafting table nearby?
+  if (cam.distanceTo(craftingTable.position) < 3.5) {
+    openCrafting();
+    return;
+  }
+
   // Check resources
   for (let i = resources.length - 1; i >= 0; i--) {
     const r = resources[i];
     if (cam.distanceTo(r.position) < 3) {
-      const added = addToBackpack(r.userData.type, r.userData.amount);
+      const added = addItem(r.userData.type, r.userData.amount);
       if (!added) { showMsg('🎒 Backpack is full!'); return; }
       showMsg((r.userData.type === 'food' ? '🍄 Found mushrooms! +' : '💧 Collected water! +') + r.userData.amount);
       scene.remove(r);
@@ -900,7 +1189,7 @@ function swingAxe() {
     if (camera.position.distanceTo(tree.position) < 3 && tree.userData.wood > 0) {
       const got = Math.min(tree.userData.wood, 2);
       tree.userData.wood -= got;
-      const added = addToBackpack('wood', got);
+      const added = addItem('wood', got);
       if (added) showMsg('🪵 Chopped wood! +' + got);
       else showMsg('🎒 Backpack is full! Couldn\'t carry the wood.');
       if (tree.userData.wood <= 0) {
@@ -1060,6 +1349,24 @@ function tick() {
   camera.rotation.y = player.yaw;
   camera.rotation.x = player.pitch;
 
+  // ── Placement ghost preview (follows the player while placing an item)
+  if (placingItem && ghostMesh) {
+    const flatDir = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+    const px = camera.position.x + flatDir.x * 2.5;
+    const pz = camera.position.z + flatDir.z * 2.5;
+    const py = getTerrainHeight(px, pz);
+    if (placingItem.type === 'wall') {
+      ghostMesh.position.set(px, py + 1.0, pz);
+      ghostMesh.rotation.y = player.yaw;
+    } else if (placingItem.type === 'ceiling') {
+      ghostMesh.position.set(px, py + 2.2, pz);
+    } else if (placingItem.type === 'floor') {
+      ghostMesh.position.set(px, py + 0.05, pz);
+    } else { // campfire
+      ghostMesh.position.set(px, py + 0.2, pz);
+    }
+  }
+
   // ── Attack cooldown
   if (player.attackCooldown > 0) player.attackCooldown -= dt;
 
@@ -1101,6 +1408,15 @@ function tick() {
   // ── Score over time
   player.score += dt;
 
+  // ── Crafting table proximity hint
+  const nearTable = camera.position.distanceTo(craftingTable.position) < 3.5;
+  if (nearTable && !nearCraftingHinted) {
+    showMsg('🔨 Tap 🤚 to open the crafting table');
+    nearCraftingHinted = true;
+  } else if (!nearTable) {
+    nearCraftingHinted = false;
+  }
+
   // ── Message fade
   if (msgTimer > 0) {
     msgTimer -= dt;
@@ -1113,7 +1429,7 @@ function tick() {
 
 // ─── START ────────────────────────────────────────────────────────────────────
 renderInventoryUI();
-showMsg('🌲 Survive the forest! Tap the screen to swing your axe, 🤚 to gather, 🎒 for your backpack.');
+showMsg('🌲 Survive the forest! Chop wood with your axe, then visit the 🔨 crafting table to build things.');
 tick();
 </script>
 </body>

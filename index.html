@@ -19,9 +19,9 @@
   .stat-label { color: #aaa; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; }
   .bar-bg { background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.15); border-radius: 2px; height: 8px; width: 120px; }
   .bar-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
-  .bar-hp   { background: linear-gradient(90deg, #b91c1c, #ef4444); }
-  .bar-hunger { background: linear-gradient(90deg, #92400e, #f59e0b); }
-  .bar-thirst { background: linear-gradient(90deg, #1e40af, #3b82f6); }
+  .bar-hp   { background: linear-gradient(90deg, #c0392b, #ff5a3c); }
+  .bar-hunger { background: linear-gradient(90deg, #b8860b, #ffd24a); }
+  .bar-thirst { background: linear-gradient(90deg, #0e7c8c, #33d6e8); }
 
   #day-counter {
     position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
@@ -36,8 +36,8 @@
   }
   .inv-slot {
     width: 48px; height: 48px;
-    background: rgba(0,0,0,0.6);
-    border: 1px solid rgba(255,255,255,0.2);
+    background: linear-gradient(160deg, #6b4423, #4a2f18);
+    border: 1px solid rgba(255,210,140,0.35);
     border-radius: 6px;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
@@ -46,7 +46,7 @@
   }
   .inv-count {
     position: absolute; bottom: 2px; right: 4px;
-    font-size: 9px; color: #ffd700;
+    font-size: 9px; color: #ffe27a;
   }
 
   /* Mobile controls */
@@ -80,14 +80,14 @@
   .action-btn {
     width: 56px; height: 56px;
     border-radius: 50%;
-    border: 2px solid rgba(255,255,255,0.3);
-    background: rgba(0,0,0,0.55);
+    border: 2px solid rgba(80,220,230,0.45);
+    background: rgba(15,40,45,0.55);
     color: white; font-size: 22px;
     display: flex; align-items: center; justify-content: center;
     cursor: pointer; -webkit-tap-highlight-color: transparent;
     user-select: none;
   }
-  .action-btn:active { background: rgba(255,255,255,0.15); }
+  .action-btn:active { background: rgba(80,220,230,0.25); }
 
   #look-zone {
     position: fixed;
@@ -206,7 +206,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.setClearColor(0x0a1a0a);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x0a1a0a, 0.04);
+scene.fog = new THREE.FogExp2(0xbfe8ff, 0.018);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 200);
 camera.position.set(0, 1.7, 0);
@@ -217,24 +217,35 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
 });
 
-// ─── LIGHTING ─────────────────────────────────────────────────────────────────
-const ambient = new THREE.AmbientLight(0x112211, 0.5);
-scene.add(ambient);
+// ─── TOON SHADING HELPER (cel-shaded "Raft" look) ─────────────────────────────
+function buildToonGradient() {
+  const colors = new Uint8Array([70, 140, 200, 255]);
+  const tex = new THREE.DataTexture(colors, colors.length, 1, THREE.LuminanceFormat);
+  tex.needsUpdate = true;
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  return tex;
+}
+const toonGradient = buildToonGradient();
 
-const moonLight = new THREE.DirectionalLight(0x4466aa, 0.6);
-moonLight.position.set(10, 30, 10);
-moonLight.castShadow = true;
-moonLight.shadow.mapSize.set(1024, 1024);
-moonLight.shadow.camera.far = 150;
-moonLight.shadow.camera.left = -50;
-moonLight.shadow.camera.right = 50;
-moonLight.shadow.camera.top = 50;
-moonLight.shadow.camera.bottom = -50;
-scene.add(moonLight);
+// ─── LIGHTING (bright stylized outdoor look) ──────────────────────────────────
+const hemiLight = new THREE.HemisphereLight(0x9fd8ff, 0x4a7a3a, 0.9);
+scene.add(hemiLight);
+
+const sunLight = new THREE.DirectionalLight(0xfff2cc, 1.2);
+sunLight.position.set(10, 30, 10);
+sunLight.castShadow = true;
+sunLight.shadow.mapSize.set(1024, 1024);
+sunLight.shadow.camera.far = 150;
+sunLight.shadow.camera.left = -50;
+sunLight.shadow.camera.right = 50;
+sunLight.shadow.camera.top = 50;
+sunLight.shadow.camera.bottom = -50;
+scene.add(sunLight);
 
 // ─── GROUND ───────────────────────────────────────────────────────────────────
 const groundGeo = new THREE.PlaneGeometry(200, 200, 40, 40);
-const groundMat = new THREE.MeshLambertMaterial({ color: 0x1a3a1a });
+const groundMat = new THREE.MeshToonMaterial({ color: 0x5fae3e, gradientMap: toonGradient });
 // slight terrain variation
 const posArr = groundGeo.attributes.position.array;
 for (let i = 0; i < posArr.length; i += 3) {
@@ -247,32 +258,88 @@ ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
 
-// ─── STARS ─────────────────────────────────────────────────────────────────────
+// ─── SKY (bright gradient, sun/moon glow, drifting clouds) ───────────────────
+const skyCanvas = document.createElement('canvas');
+skyCanvas.width = 2; skyCanvas.height = 256;
+const skyCtx = skyCanvas.getContext('2d');
+const skyTexture = new THREE.CanvasTexture(skyCanvas);
+scene.background = skyTexture;
+
+function paintSky(topHex, bottomHex) {
+  const grad = skyCtx.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, topHex);
+  grad.addColorStop(1, bottomHex);
+  skyCtx.fillStyle = grad;
+  skyCtx.fillRect(0, 0, 2, 256);
+  skyTexture.needsUpdate = true;
+}
+paintSky('#bfe8ff', '#eaf6ff');
+
+function makeGlowTexture(color) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, color);
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+const sunGlowTex  = makeGlowTexture('rgba(255,250,210,1)');
+const moonGlowTex = makeGlowTexture('rgba(205,220,255,0.95)');
+const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: sunGlowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+}));
+sunSprite.scale.set(30, 30, 1);
+scene.add(sunSprite);
+
+// Stars (fade in at night)
 const starGeo = new THREE.BufferGeometry();
 const starVerts = [];
-for (let i = 0; i < 800; i++) {
+for (let i = 0; i < 600; i++) {
   const theta = Math.random() * Math.PI * 2;
   const phi   = Math.acos(2 * Math.random() - 1);
-  const r = 150;
-  starVerts.push(r*Math.sin(phi)*Math.cos(theta), r*Math.cos(phi), r*Math.sin(phi)*Math.sin(theta));
+  const r = 140;
+  starVerts.push(r*Math.sin(phi)*Math.cos(theta), Math.abs(r*Math.cos(phi)), r*Math.sin(phi)*Math.sin(theta));
 }
 starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts, 3));
-const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.5 }));
+const starsMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.6, transparent: true, opacity: 0 });
+const stars = new THREE.Points(starGeo, starsMat);
 scene.add(stars);
+
+// Low-poly puffy clouds
+const clouds = [];
+const cloudMat = new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: toonGradient });
+for (let i = 0; i < 14; i++) {
+  const cg = new THREE.Group();
+  const puffs = 3 + Math.floor(Math.random() * 3);
+  for (let j = 0; j < puffs; j++) {
+    const puff = new THREE.Mesh(new THREE.IcosahedronGeometry(1.2 + Math.random() * 0.8, 0), cloudMat);
+    puff.position.set(j * 1.4 - puffs * 0.6, Math.random() * 0.4, Math.random() * 0.6);
+    cg.add(puff);
+  }
+  const a = Math.random() * Math.PI * 2, d = 30 + Math.random() * 60;
+  cg.position.set(Math.cos(a) * d, 18 + Math.random() * 8, Math.sin(a) * d);
+  cg.userData.speed = 0.3 + Math.random() * 0.4;
+  scene.add(cg);
+  clouds.push(cg);
+}
+let skyTimer = 0;
 
 // ─── TREE BUILDER ─────────────────────────────────────────────────────────────
 function makeTree(x, z) {
   const g = new THREE.Group();
   const h = 4 + Math.random() * 4;
-  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x3d2b1a });
+  const trunkMat = new THREE.MeshToonMaterial({ color: 0x8a5a2e, gradientMap: toonGradient });
   const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.25, h, 6), trunkMat);
   trunk.position.y = h / 2;
   trunk.castShadow = true;
   g.add(trunk);
 
-  const leafColors = [0x1a4d1a, 0x1e5c1e, 0x163d16, 0x0d2e0d];
+  const leafColors = [0x4fc14f, 0x3fae3f, 0x5fd35f, 0x36a336];
   const lc = leafColors[Math.floor(Math.random() * leafColors.length)];
-  const leafMat = new THREE.MeshLambertMaterial({ color: lc });
+  const leafMat = new THREE.MeshToonMaterial({ color: lc, gradientMap: toonGradient });
   const layers = 3 + Math.floor(Math.random() * 2);
   for (let i = 0; i < layers; i++) {
     const r = 1.5 - i * 0.3 + Math.random() * 0.3;
@@ -308,19 +375,22 @@ function spawnResource(type, count) {
     if (type === 'food') {
       mesh = new THREE.Mesh(
         new THREE.SphereGeometry(0.3, 6, 6),
-        new THREE.MeshLambertMaterial({ color: 0xcc4422 })
+        new THREE.MeshToonMaterial({ color: 0xff5a3c, gradientMap: toonGradient })
       );
       mesh.position.set(x, 0.3, z);
     } else if (type === 'water') {
       mesh = new THREE.Mesh(
         new THREE.CylinderGeometry(0.4, 0.4, 0.2, 8),
-        new THREE.MeshLambertMaterial({ color: 0x2255cc })
+        new THREE.MeshToonMaterial({ color: 0x33d6e8, gradientMap: toonGradient })
       );
       mesh.position.set(x, 0.1, z);
     }
     if (mesh) {
       mesh.castShadow = true;
-      mesh.userData = { type, amount: 20 + Math.floor(Math.random() * 20) };
+      mesh.userData = {
+        type, amount: 20 + Math.floor(Math.random() * 20),
+        baseY: mesh.position.y, bobOffset: Math.random() * Math.PI * 2
+      };
       scene.add(mesh);
       resources.push(mesh);
     }
@@ -334,7 +404,7 @@ const fires = [];
 function buildCampfire(x, z) {
   const g = new THREE.Group();
   // logs
-  const logMat = new THREE.MeshLambertMaterial({ color: 0x3d2b1a });
+  const logMat = new THREE.MeshToonMaterial({ color: 0x8a5a2e, gradientMap: toonGradient });
   for (let i = 0; i < 5; i++) {
     const l = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.8, 5), logMat);
     l.rotation.z = Math.PI / 2;
@@ -343,19 +413,25 @@ function buildCampfire(x, z) {
     g.add(l);
   }
   // flame light
-  const fl = new THREE.PointLight(0xff6600, 2, 8);
+  const fl = new THREE.PointLight(0xff8800, 2.2, 8);
   fl.position.set(0, 0.5, 0);
   g.add(fl);
-  // flame mesh
+  // flame mesh (two-tone for a cartoon glow)
   const flame = new THREE.Mesh(
-    new THREE.ConeGeometry(0.2, 0.6, 6),
-    new THREE.MeshBasicMaterial({ color: 0xff4400 })
+    new THREE.ConeGeometry(0.22, 0.65, 6),
+    new THREE.MeshBasicMaterial({ color: 0xff5500 })
   );
   flame.position.y = 0.4;
   g.add(flame);
+  const flameCore = new THREE.Mesh(
+    new THREE.ConeGeometry(0.12, 0.4, 6),
+    new THREE.MeshBasicMaterial({ color: 0xffdd44 })
+  );
+  flameCore.position.y = 0.35;
+  g.add(flameCore);
   g.position.set(x, 0, z);
   scene.add(g);
-  fires.push({ group: g, light: fl, flame });
+  fires.push({ group: g, light: fl, flame, flameCore });
   return g;
 }
 
@@ -363,10 +439,14 @@ function buildCampfire(x, z) {
 const wolves = [];
 function spawnWolf(x, z) {
   const g = new THREE.Group();
-  const mat = new THREE.MeshLambertMaterial({ color: 0x555566 });
+  const mat = new THREE.MeshToonMaterial({ color: 0x7a5c44, gradientMap: toonGradient });
+  const bellyMat = new THREE.MeshToonMaterial({ color: 0xe8dcc8, gradientMap: toonGradient });
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.5, 1.2), mat);
   body.position.y = 0.5;
   g.add(body);
+  const belly = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.2, 1.0), bellyMat);
+  belly.position.set(0, 0.32, 0);
+  g.add(belly);
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.35, 0.4), mat);
   head.position.set(0, 0.75, 0.6);
   g.add(head);
@@ -614,10 +694,10 @@ function doAttack() {
       // drop food
       const f = new THREE.Mesh(
         new THREE.SphereGeometry(0.3, 6, 6),
-        new THREE.MeshLambertMaterial({ color: 0xcc4422 })
+        new THREE.MeshToonMaterial({ color: 0xff5a3c, gradientMap: toonGradient })
       );
       f.position.copy(hit.position).add(new THREE.Vector3(0, 0.3, 0));
-      f.userData = { type: 'food', amount: 30 };
+      f.userData = { type: 'food', amount: 30, baseY: f.position.y, bobOffset: Math.random() * Math.PI * 2 };
       scene.add(f);
       resources.push(f);
     }
@@ -663,13 +743,34 @@ function tick() {
   const isDay = player.dayTime < 0.5;
   const sunAngle = player.dayTime * Math.PI * 2;
 
-  // Update ambient / moon
-  const dayBrightness = Math.sin(player.dayTime * Math.PI);
-  ambient.intensity = 0.2 + dayBrightness * 0.6;
-  moonLight.intensity = isDay ? 0.8 * dayBrightness : 0.3;
-  moonLight.color.setHex(isDay ? 0xffeedd : 0x4466aa);
-  scene.fog.color.setHex(isDay ? 0x4a7a4a : 0x0a1a0a);
-  renderer.setClearColor(isDay ? 0x4a7a4a : 0x0a1a0a);
+  // Update sun/sky (bright stylized cycle)
+  const dayBrightness = Math.sin(player.dayTime * Math.PI); // 0 at night, 1 at midday
+  hemiLight.intensity = 0.5 + Math.max(0, dayBrightness) * 0.6;
+  sunLight.intensity = isDay ? 0.6 + dayBrightness * 0.9 : 0.18;
+  sunLight.color.setHex(isDay ? 0xfff2cc : 0x6f86c9);
+
+  const arc = player.dayTime * Math.PI * 2;
+  const sunDir = new THREE.Vector3(Math.cos(arc), Math.sin(arc), -0.3).normalize();
+  sunLight.position.copy(sunDir).multiplyScalar(40);
+  sunSprite.position.copy(camera.position).add(sunDir.clone().multiplyScalar(90));
+  sunSprite.material.map = isDay ? sunGlowTex : moonGlowTex;
+  sunSprite.material.opacity = Math.max(0.3, Math.abs(Math.sin(arc)));
+  sunSprite.scale.setScalar(isDay ? 30 : 18);
+
+  starsMat.opacity = isDay ? 0 : 0.7 * (1 - dayBrightness);
+
+  skyTimer += dt;
+  if (skyTimer > 0.4) {
+    skyTimer = 0;
+    paintSky(isDay ? '#bfe8ff' : '#10173a', isDay ? '#eaf6ff' : '#2b3a66');
+  }
+  scene.fog.color.setHex(isDay ? 0xbfe8ff : 0x10173a);
+
+  for (const c of clouds) {
+    c.position.x += Math.cos(Date.now() * 0.00005 * c.userData.speed) * dt * 0.5;
+    c.position.z += Math.sin(Date.now() * 0.00005 * c.userData.speed) * dt * 0.5;
+    c.visible = isDay;
+  }
 
   // Update day text
   if (player.dayTime < 0.01 && dt > 0) {
@@ -707,6 +808,13 @@ function tick() {
     }
     // flicker
     fire.flame.scale.y = 0.8 + Math.sin(Date.now()*0.007) * 0.2;
+    fire.flameCore.scale.y = 0.8 + Math.sin(Date.now()*0.011) * 0.25;
+  }
+
+  // Bob & rotate collectibles for a lively, stylized feel
+  for (const r of resources) {
+    r.position.y = r.userData.baseY + Math.sin(Date.now() * 0.002 + r.userData.bobOffset) * 0.08;
+    r.rotation.y += dt * 0.6;
   }
 
   if (player.hp <= 0) { die('You starved.'); return; }

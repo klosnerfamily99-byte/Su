@@ -333,20 +333,69 @@ sunLight.shadow.camera.top = 50;
 sunLight.shadow.camera.bottom = -50;
 scene.add(sunLight);
 
+// ─── TERRAIN HEIGHT (hills in some places, flat in others) ───────────────────
+const hillCenters = [];
+for (let i = 0; i < 9; i++) {
+  const a = Math.random() * Math.PI * 2;
+  const d = 18 + Math.random() * 65;
+  hillCenters.push({
+    x: Math.cos(a) * d,
+    z: Math.sin(a) * d,
+    radius: 9 + Math.random() * 13,
+    height: 3 + Math.random() * 5
+  });
+}
+
+function getTerrainHeight(x, z) {
+  if (Math.hypot(x, z) < 5) return 0; // keep the spawn clearing flat
+  let h = 0;
+  for (const hill of hillCenters) {
+    const dx = x - hill.x, dz = z - hill.z;
+    const d2 = dx * dx + dz * dz;
+    h += hill.height * Math.exp(-d2 / (hill.radius * hill.radius));
+  }
+  // tiny ripple so "flat" ground still feels natural, not billiard-table flat
+  h += Math.sin(x * 0.08) * Math.cos(z * 0.08) * 0.2;
+  return h;
+}
+
 // ─── GROUND ───────────────────────────────────────────────────────────────────
-const groundGeo = new THREE.PlaneGeometry(200, 200, 40, 40);
+const groundGeo = new THREE.PlaneGeometry(200, 200, 80, 80);
 const groundMat = new THREE.MeshToonMaterial({ color: 0x5fae3e, gradientMap: toonGradient });
-// slight terrain variation
 const posArr = groundGeo.attributes.position.array;
 for (let i = 0; i < posArr.length; i += 3) {
-  const x = posArr[i], z = posArr[i+2];
-  if (Math.abs(x) > 3 || Math.abs(z) > 3) posArr[i+1] = Math.sin(x*0.3)*Math.cos(z*0.3)*0.8;
+  const xWorld = posArr[i];
+  const zWorld = -posArr[i + 1]; // plane's local Y maps to world -Z once rotated below
+  posArr[i + 2] = getTerrainHeight(xWorld, zWorld); // local Z becomes world height (Y) after rotation
 }
 groundGeo.computeVertexNormals();
 const ground = new THREE.Mesh(groundGeo, groundMat);
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
+
+// ─── GRASS (scattered everywhere, following the terrain) ────────────────────
+const grassGeo = new THREE.ConeGeometry(0.045, 0.32, 3);
+grassGeo.translate(0, 0.16, 0);
+const grassMat = new THREE.MeshToonMaterial({ color: 0x4fc14f, gradientMap: toonGradient, side: THREE.DoubleSide });
+const GRASS_COUNT = 4500;
+const grassMesh = new THREE.InstancedMesh(grassGeo, grassMat, GRASS_COUNT);
+grassMesh.castShadow = false;
+grassMesh.receiveShadow = false;
+const grassDummy = new THREE.Object3D();
+for (let i = 0; i < GRASS_COUNT; i++) {
+  const gx = (Math.random() - 0.5) * 178;
+  const gz = (Math.random() - 0.5) * 178;
+  const gy = getTerrainHeight(gx, gz);
+  grassDummy.position.set(gx, gy, gz);
+  grassDummy.rotation.y = Math.random() * Math.PI * 2;
+  const s = 0.6 + Math.random() * 0.9;
+  grassDummy.scale.set(s, s * (0.7 + Math.random() * 0.7), s);
+  grassDummy.updateMatrix();
+  grassMesh.setMatrixAt(i, grassDummy.matrix);
+}
+grassMesh.instanceMatrix.needsUpdate = true;
+scene.add(grassMesh);
 
 // ─── SKY (bright gradient, sun/moon glow, drifting clouds) ───────────────────
 const skyCanvas = document.createElement('canvas');
@@ -439,8 +488,7 @@ function makeTree(x, z) {
     leaf.castShadow = true;
     g.add(leaf);
   }
-  g.position.set(x, 0, z);
-  g.userData.isTree = true;
+  g.position.set(x, getTerrainHeight(x, z), z);
   g.userData.wood = Math.floor(2 + Math.random() * 3);
   scene.add(g);
   return g;
@@ -461,19 +509,20 @@ function spawnResource(type, count) {
     const angle = Math.random() * Math.PI * 2;
     const dist  = 5 + Math.random() * 50;
     const x = Math.cos(angle) * dist, z = Math.sin(angle) * dist;
+    const groundY = getTerrainHeight(x, z);
     let mesh;
     if (type === 'food') {
       mesh = new THREE.Mesh(
         new THREE.SphereGeometry(0.3, 6, 6),
         new THREE.MeshToonMaterial({ color: 0xff5a3c, gradientMap: toonGradient })
       );
-      mesh.position.set(x, 0.3, z);
+      mesh.position.set(x, groundY + 0.3, z);
     } else if (type === 'water') {
       mesh = new THREE.Mesh(
         new THREE.CylinderGeometry(0.4, 0.4, 0.2, 8),
         new THREE.MeshToonMaterial({ color: 0x33d6e8, gradientMap: toonGradient })
       );
-      mesh.position.set(x, 0.1, z);
+      mesh.position.set(x, groundY + 0.1, z);
     }
     if (mesh) {
       mesh.castShadow = true;
@@ -519,9 +568,7 @@ function buildCampfire(x, z) {
   );
   flameCore.position.y = 0.35;
   g.add(flameCore);
-  g.position.set(x, 0, z);
-  scene.add(g);
-  fires.push({ group: g, light: fl, flame, flameCore });
+  g.position.set(x, getTerrainHeight(x, z), z);
   return g;
 }
 
@@ -546,9 +593,7 @@ function spawnWolf(x, z) {
     leg.position.set(i < 2 ? -0.25 : 0.25, 0.2, i % 2 === 0 ? 0.35 : -0.35);
     g.add(leg);
   }
-  g.position.set(x, 0, z);
-  g.castShadow = true;
-  g.userData = { hp: 3, speed: 2 + Math.random(), alertRange: 15 };
+  g.position.set(x, getTerrainHeight(x, z), z);
   scene.add(g);
   wolves.push(g);
   return g;
@@ -1003,7 +1048,7 @@ function tick() {
 
   // Keep on ground (simple terrain sampling)
   const gx = camera.position.x, gz = camera.position.z;
-  const groundY = Math.sin(gx*0.3)*Math.cos(gz*0.3)*0.8;
+  const groundY = getTerrainHeight(gx, gz);
   camera.position.y = Math.max(groundY + 1.7, 1.7);
 
   // World bounds
@@ -1038,8 +1083,8 @@ function tick() {
       const dir2 = camPos.clone().sub(wolf.position).normalize();
       wolf.position.add(dir2.multiplyScalar(wolf.userData.speed * dt));
       wolf.lookAt(camPos.x, wolf.position.y, camPos.z);
-      // Simple terrain follow
-      wolf.position.y = Math.sin(wolf.position.x*0.3)*Math.cos(wolf.position.z*0.3)*0.8;
+      // Terrain follow
+      wolf.position.y = getTerrainHeight(wolf.position.x, wolf.position.z);
 
       if (dist < 1.5) {
         player.hp -= dt * 15;
@@ -1049,7 +1094,7 @@ function tick() {
       // Wander
       wolf.position.x += Math.sin(Date.now()*0.001 + wolf.userData.speed) * dt * 1;
       wolf.position.z += Math.cos(Date.now()*0.0008 + wolf.userData.speed) * dt * 1;
-      wolf.position.y = Math.sin(wolf.position.x*0.3)*Math.cos(wolf.position.z*0.3)*0.8;
+      wolf.position.y = getTerrainHeight(wolf.position.x, wolf.position.z);
     }
   }
 

@@ -66,7 +66,6 @@
     position: absolute; bottom: 1px; right: 3px;
     font-size: 9px; color: #ffe27a;
   }
-  .hand-icon { opacity: 0.5; font-size: 19px; }
 
   #backpack-overlay {
     position: fixed; inset: 0;
@@ -325,7 +324,7 @@
 
 <!-- Action buttons -->
 <div id="action-buttons">
-  <div class="action-btn" id="btn-interact">🤚</div>
+  <div class="action-btn" id="btn-interact">✊</div>
 </div>
 
 <!-- Death Screen -->
@@ -522,6 +521,11 @@ function paintSky(topHex, bottomHex) {
 }
 paintSky('#bfe8ff', '#eaf6ff');
 
+function lerpHexColor(hexA, hexB, t) {
+  const a = new THREE.Color(hexA).lerp(new THREE.Color(hexB), t);
+  return `rgb(${Math.round(a.r * 255)},${Math.round(a.g * 255)},${Math.round(a.b * 255)})`;
+}
+
 function makeGlowTexture(color) {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
@@ -540,6 +544,11 @@ const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({
 }));
 sunSprite.scale.set(30, 30, 1);
 scene.add(sunSprite);
+const moonSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: moonGlowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+}));
+moonSprite.scale.set(18, 18, 1);
+scene.add(moonSprite);
 
 // Stars (fade in at night)
 const starGeo = new THREE.BufferGeometry();
@@ -557,7 +566,7 @@ scene.add(stars);
 
 // Low-poly puffy clouds
 const clouds = [];
-const cloudMat = new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: toonGradient });
+const cloudMat = new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: toonGradient, transparent: true, opacity: 1 });
 for (let i = 0; i < 14; i++) {
   const cg = new THREE.Group();
   const puffs = 3 + Math.floor(Math.random() * 3);
@@ -634,6 +643,15 @@ function spawnResource(type, count) {
       mesh.scale.set(1, 0.35, 1);
       mesh.position.set(x, groundY + 0.12, z);
       amount = 3 + Math.floor(Math.random() * 4);
+    } else if (type === 'stone') {
+      mesh = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(0.22, 0),
+        new THREE.MeshToonMaterial({ color: 0x9a9a92, gradientMap: toonGradient })
+      );
+      mesh.scale.set(1, 0.7, 0.85);
+      mesh.rotation.set(Math.random(), Math.random(), Math.random());
+      mesh.position.set(x, groundY + 0.15, z);
+      amount = 1 + Math.floor(Math.random() * 3);
     }
     if (mesh) {
       mesh.castShadow = true;
@@ -648,6 +666,7 @@ function spawnResource(type, count) {
 }
 spawnResource('food', 15);
 spawnResource('leaves', 18);
+spawnResource('stone', 10);
 
 // ─── CAMPFIRE ─────────────────────────────────────────────────────────────────
 const fires = [];
@@ -808,7 +827,7 @@ const hotbar = new Array(7).fill(null);
 // You start empty-handed (bare fists) with just a crafting table to set up camp.
 
 const ITEM_ICONS = {
-  axe: '🪓', wood: '🪵', food: '🍄', leaves: '🍃', water: '💧',
+  axe: '🪓', pickaxe: '⛏️', wood: '🪵', food: '🍄', leaves: '🍃', stone: '🪨', water: '💧',
   purifier: '🚰', poultice: '🩹',
   campfire: '🔥', wall: '🧱', ceiling: '⬜', floor: '🟫', crafting_table: '🔨'
 };
@@ -899,8 +918,10 @@ function tapHotbarSlot(i) {
 
   if (item.type === 'axe') {
     showMsg('🪓 Axe equipped — tap the screen to swing it!');
+  } else if (item.type === 'pickaxe') {
+    showMsg('⛏️ Pickaxe equipped — a heavier hit against wolves!');
   } else if (item.type === 'purifier') {
-    showMsg('🚰 Purifier equipped. Walk up to a lake and tap 🤚 to draw clean water.');
+    showMsg('🚰 Purifier equipped. Walk up to a lake and tap ✊ to draw clean water.');
   } else if (item.type === 'food') {
     player.hunger = Math.min(100, player.hunger + 25);
     item.count--;
@@ -930,12 +951,14 @@ function renderInventoryUI() {
     slot.className = 'hotbar-slot' + (i === player.selectedSlot ? ' equipped' : '');
     if (item) {
       slot.innerHTML = ITEM_ICONS[item.type] + `<span class="hotbar-count">${item.count}</span>`;
-    } else {
-      slot.innerHTML = '<span class="hand-icon">✊</span>';
     }
     slot.onclick = () => tapHotbarSlot(i);
     hotbarEl.appendChild(slot);
   });
+
+  // The hand button mirrors whatever's equipped — a fist when the slot is empty
+  const equipped = hotbar[player.selectedSlot];
+  document.getElementById('btn-interact').textContent = equipped ? ITEM_ICONS[equipped.type] : '✊';
 
   if (backpackOpen) {
     const gridEl = document.getElementById('backpack-grid');
@@ -969,6 +992,7 @@ document.getElementById('backpack-close').addEventListener('click', closeBackpac
 // ─── CRAFTING ─────────────────────────────────────────────────────────────────
 const RECIPES = [
   { type: 'axe',      name: 'Axe',             icon: '🪓', cost: { wood: 4 } },
+  { type: 'pickaxe',  name: 'Pickaxe',         icon: '⛏️', cost: { wood: 3, stone: 3 } },
   { type: 'purifier', name: 'Water Purifier',  icon: '🚰', cost: { wood: 3, leaves: 4 } },
   { type: 'poultice', name: 'Healing Poultice', icon: '🩹', cost: { food: 3, leaves: 2 } },
   { type: 'campfire', name: 'Campfire',         icon: '🔥', cost: { wood: 3 } },
@@ -1220,7 +1244,7 @@ function doInteract() {
     if (cam.distanceTo(r.position) < 3) {
       const added = addItem(r.userData.type, r.userData.amount);
       if (!added) { showMsg('🎒 Backpack is full!'); return; }
-      const labels = { food: '🍄 Found mushrooms! +', leaves: '🍃 Gathered leaves! +' };
+      const labels = { food: '🍄 Found mushrooms! +', leaves: '🍃 Gathered leaves! +', stone: '🪨 Picked up a rock! +' };
       showMsg(labels[r.userData.type] + r.userData.amount);
       scene.remove(r);
       resources.splice(i, 1);
@@ -1230,7 +1254,8 @@ function doInteract() {
     }
   }
 
-  showMsg('Nothing nearby to pick up. (Tap the screen to use your hand or axe)');
+  // Nothing to pick up — use whatever's equipped (hand/axe/pickaxe) instead
+  swingTool();
 }
 
 function swingTool() {
@@ -1240,6 +1265,8 @@ function swingTool() {
 
   const equipped = hotbar[player.selectedSlot];
   const usingAxe = !!(equipped && equipped.type === 'axe');
+  const usingPickaxe = !!(equipped && equipped.type === 'pickaxe');
+  const toolIcon = usingPickaxe ? '⛏️' : (usingAxe ? '🪓' : '✊');
 
   // Ray from camera
   const dir = new THREE.Vector3();
@@ -1256,8 +1283,8 @@ function swingTool() {
     }
   }
   if (hitWolf) {
-    hitWolf.userData.hp -= usingAxe ? 1 : 0.5;
-    showMsg(usingAxe ? '🪓 Hit the wolf!' : '✊ Punched the wolf!');
+    hitWolf.userData.hp -= usingPickaxe ? 1.5 : (usingAxe ? 1 : 0.5);
+    showMsg(toolIcon + ' Hit the wolf!');
     if (hitWolf.userData.hp <= 0) {
       scene.remove(hitWolf);
       wolves.splice(wolves.indexOf(hitWolf), 1);
@@ -1283,7 +1310,7 @@ function swingTool() {
       const got = Math.min(tree.userData.wood, usingAxe ? 2 : 1);
       tree.userData.wood -= got;
       const added = addItem('wood', got);
-      if (added) showMsg((usingAxe ? '🪓' : '✊') + ' Chopped wood! +' + got);
+      if (added) showMsg(toolIcon + ' Chopped wood! +' + got);
       else showMsg('🎒 Backpack is full! Couldn\'t carry the wood.');
       if (tree.userData.wood <= 0) {
         scene.remove(tree);
@@ -1293,7 +1320,7 @@ function swingTool() {
     }
   }
 
-  showMsg(usingAxe ? '🪓 Swung at nothing.' : '✊ Swung at nothing.');
+  showMsg(toolIcon + ' Swung at nothing.');
 }
 
 // ─── HUD UPDATE ───────────────────────────────────────────────────────────────
@@ -1316,7 +1343,7 @@ function die(reason) {
 
 // ─── MAIN LOOP ────────────────────────────────────────────────────────────────
 const clock = new THREE.Clock();
-const DAY_DURATION = 60; // seconds per day
+const DAY_DURATION = 600; // 10 real-world minutes per full day/night cycle
 
 function tick() {
   requestAnimationFrame(tick);
@@ -1326,36 +1353,42 @@ function tick() {
 
   // ── Day/Night cycle
   player.dayTime = (player.dayTime + dt / DAY_DURATION) % 1;
-  const isDay = player.dayTime < 0.5;
-  const sunAngle = player.dayTime * Math.PI * 2;
+  const isDay = player.dayTime < 0.5; // used only for the day-counter / icon / wolf spawns
 
-  // Update sun/sky (bright stylized cycle)
-  const dayBrightness = Math.sin(player.dayTime * Math.PI); // 0 at night, 1 at midday
-  hemiLight.intensity = 0.5 + Math.max(0, dayBrightness) * 0.6;
-  sunLight.intensity = isDay ? 0.6 + dayBrightness * 0.9 : 0.18;
-  sunLight.color.setHex(isDay ? 0xfff2cc : 0x6f86c9);
+  // Smooth, continuous brightness: peaks at midday (t=0.25), troughs at midnight (t=0.75),
+  // gradually rising through dawn (near t=0) and gradually falling through dusk (near t=0.5).
+  const brightness = (1 + Math.cos(2 * Math.PI * (player.dayTime - 0.25))) / 2;
 
+  hemiLight.intensity = 0.3 + brightness * 0.8;
+  sunLight.intensity = 0.15 + brightness * 1.05;
+  sunLight.color.set(0x6f86c9).lerp(new THREE.Color(0xfff2cc), brightness);
+
+  // Sun and moon ride opposite arcs so one rises as the other sets
   const arc = player.dayTime * Math.PI * 2;
   const sunDir = new THREE.Vector3(Math.cos(arc), Math.sin(arc), -0.3).normalize();
+  const moonDir = new THREE.Vector3(Math.cos(arc + Math.PI), Math.sin(arc + Math.PI), -0.3).normalize();
   sunLight.position.copy(sunDir).multiplyScalar(40);
   sunSprite.position.copy(camera.position).add(sunDir.clone().multiplyScalar(90));
-  sunSprite.material.map = isDay ? sunGlowTex : moonGlowTex;
-  sunSprite.material.opacity = Math.max(0.3, Math.abs(Math.sin(arc)));
-  sunSprite.scale.setScalar(isDay ? 30 : 18);
+  sunSprite.material.opacity = Math.max(0.12, brightness);
+  moonSprite.position.copy(camera.position).add(moonDir.clone().multiplyScalar(90));
+  moonSprite.material.opacity = Math.max(0.12, 1 - brightness);
 
-  starsMat.opacity = isDay ? 0 : 0.7 * (1 - dayBrightness);
+  starsMat.opacity = 0.75 * (1 - brightness);
 
   skyTimer += dt;
   if (skyTimer > 0.4) {
     skyTimer = 0;
-    paintSky(isDay ? '#bfe8ff' : '#10173a', isDay ? '#eaf6ff' : '#2b3a66');
+    paintSky(
+      lerpHexColor(0x10173a, 0xbfe8ff, brightness),
+      lerpHexColor(0x2b3a66, 0xeaf6ff, brightness)
+    );
   }
-  scene.fog.color.setHex(isDay ? 0xbfe8ff : 0x10173a);
+  scene.fog.color.set(0x10173a).lerp(new THREE.Color(0xbfe8ff), brightness);
 
+  cloudMat.opacity = 0.15 + 0.85 * brightness;
   for (const c of clouds) {
     c.position.x += Math.cos(Date.now() * 0.00005 * c.userData.speed) * dt * 0.5;
     c.position.z += Math.sin(Date.now() * 0.00005 * c.userData.speed) * dt * 0.5;
-    c.visible = isDay;
   }
 
   // Update day text
@@ -1372,8 +1405,8 @@ function tick() {
   document.getElementById('day-text').textContent = `Day ${player.day}`;
   document.getElementById('time-icon').textContent = isDay ? '☀️' : '🌙';
 
-  // ── Survival drain
-  const drainRate = isDay ? 1 : 1.5; // faster at night
+  // ── Survival drain (gradually harsher as night deepens)
+  const drainRate = 1.5 - 0.5 * brightness;
   player.hunger -= dt * 1.5 * drainRate;
   player.thirst -= dt * 2.0 * drainRate;
   player.hunger = Math.max(0, player.hunger);
@@ -1508,7 +1541,7 @@ function tick() {
   // ── Crafting table proximity hint
   const nearTable = craftingTables.some(t => camera.position.distanceTo(t.position) < 3.5);
   if (nearTable && !nearCraftingHinted) {
-    showMsg('🔨 Tap 🤚 to open the crafting table');
+    showMsg('🔨 Tap your hand button to open the crafting table');
     nearCraftingHinted = true;
   } else if (!nearTable) {
     nearCraftingHinted = false;

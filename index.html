@@ -234,6 +234,17 @@
   }
   #message.show { opacity: 1; }
 
+  #craft-prompt-btn {
+    position: fixed; bottom: 150px; left: 50%; transform: translateX(-50%);
+    padding: 10px 20px; border-radius: 22px;
+    background: rgba(138,90,46,0.9);
+    border: 2px solid rgba(255,210,140,0.6);
+    color: white; font-size: 14px; letter-spacing: 1px;
+    display: none; align-items: center; justify-content: center;
+    z-index: 12; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  #craft-prompt-btn:active { background: rgba(168,112,60,0.95); }
+
   #death-screen {
     position: fixed; inset: 0;
     background: rgba(100,0,0,0.85);
@@ -424,6 +435,7 @@
 
 <div id="crosshair"></div>
 <div id="message"></div>
+<div id="craft-prompt-btn">🔨 Craft</div>
 
 <!-- Joystick -->
 <div id="joystick-zone">
@@ -541,7 +553,6 @@ for (let i = 0; i < 4; i++) {
 }
 
 function getTerrainHeight(x, z) {
-  if (Math.hypot(x, z) < 5) return 0; // keep the spawn clearing flat
   let h = 0;
   for (const hill of hillCenters) {
     const dx = x - hill.x, dz = z - hill.z;
@@ -555,6 +566,16 @@ function getTerrainHeight(x, z) {
   }
   // tiny ripple so "flat" ground still feels natural, not billiard-table flat
   h += Math.sin(x * 0.08) * Math.cos(z * 0.08) * 0.2;
+
+  // Smoothly flatten the spawn clearing instead of a hard cutoff (a hard cutoff
+  // caused a sudden vertical snap right at the boundary — the "falling through
+  // the ground" bug — whenever a hill's falloff still had height there).
+  const distFromSpawn = Math.hypot(x, z);
+  const flattenRadius = 12;
+  if (distFromSpawn < flattenRadius) {
+    const t = distFromSpawn / flattenRadius;
+    h *= t * t;
+  }
   return h;
 }
 
@@ -724,7 +745,7 @@ function makeTree(x, z) {
 }
 
 const trees = [];
-for (let i = 0; i < 120; i++) {
+for (let i = 0; i < 240; i++) {
   const angle = Math.random() * Math.PI * 2;
   const dist  = 8 + Math.random() * 80;
   trees.push(makeTree(Math.cos(angle)*dist, Math.sin(angle)*dist));
@@ -1313,26 +1334,18 @@ document.addEventListener('keydown', e => {
   if (e.code === 'Space' && !placingItem) swingTool();
 });
 document.getElementById('btn-interact').addEventListener('click', doInteract);
+document.getElementById('craft-prompt-btn').addEventListener('touchstart', e => { e.preventDefault(); openCrafting(); }, { passive: false });
+document.getElementById('craft-prompt-btn').addEventListener('click', openCrafting);
 
-// ─── MESSAGES ────────────────────────────────────────────────────────────────
-let msgTimer = 0;
-let nearCraftingHinted = false;
-function showMsg(text) {
-  const el = document.getElementById('message');
-  el.textContent = text;
-  el.classList.add('show');
-  msgTimer = 2.5;
+// ─── MESSAGES (disabled — no on-screen popups) ───────────────────────────────
+function showMsg() {
+  // intentionally no-op
 }
 
 // ─── INTERACTION ──────────────────────────────────────────────────────────────
 function doInteract() {
   if (!gameStarted || player.dead) return;
   const cam = camera.position;
-
-  // Crafting table nearby?
-  for (const table of craftingTables) {
-    if (cam.distanceTo(table.position) < 3.5) { openCrafting(); return; }
-  }
 
   // Lake nearby?
   for (const lake of lakeCenters) {
@@ -1466,6 +1479,7 @@ function applySettings() {
   document.getElementById('action-buttons').style.transform = `scale(${s})`;
   document.getElementById('backpack-btn').style.transform = `scale(${s})`;
   document.getElementById('hotbar').style.transform = `translateX(-50%) scale(${s})`;
+  document.getElementById('craft-prompt-btn').style.transform = `translateX(-50%) scale(${s})`;
 
   document.getElementById('sens-value').textContent = settings.sensitivity.toFixed(1) + 'x';
 }
@@ -1535,6 +1549,7 @@ function tick() {
   const dt = Math.min(clock.getDelta(), 0.1);
 
   // ── Day/Night cycle
+  const prevDayTime = player.dayTime;
   player.dayTime = (player.dayTime + dt / DAY_DURATION) % 1;
   const isDay = player.dayTime < 0.5; // used only for the day-counter / icon / wolf spawns
 
@@ -1575,7 +1590,7 @@ function tick() {
   }
 
   // Update day text
-  if (player.dayTime < 0.01 && dt > 0) {
+  if (player.dayTime < prevDayTime) {
     player.day++;
     player.score += 20;
     // Spawn more wolves each day
@@ -1644,14 +1659,14 @@ function tick() {
     camera.position.add(moveVec);
   }
 
-  // Keep on ground (simple terrain sampling)
+  // World bounds (clamp first, so ground height is sampled at the real final position)
+  camera.position.x = Math.max(-90, Math.min(90, camera.position.x));
+  camera.position.z = Math.max(-90, Math.min(90, camera.position.z));
+
+  // Keep on ground (terrain sampling)
   const gx = camera.position.x, gz = camera.position.z;
   const groundY = getTerrainHeight(gx, gz);
   camera.position.y = Math.max(groundY + 1.7, 1.7);
-
-  // World bounds
-  camera.position.x = Math.max(-90, Math.min(90, camera.position.x));
-  camera.position.z = Math.max(-90, Math.min(90, camera.position.z));
 
   // ── Camera rotation
   camera.rotation.order = 'YXZ';
@@ -1721,24 +1736,13 @@ function tick() {
   // ── Score over time
   player.score += dt;
 
-  // ── Crafting table proximity hint
+  // ── Crafting table proximity: show a dedicated button instead of a popup
   const nearTable = craftingTables.some(t => camera.position.distanceTo(t.position) < 3.5);
-  if (nearTable && !nearCraftingHinted) {
-    showMsg('🔨 Tap your hand button to open the crafting table');
-    nearCraftingHinted = true;
-  } else if (!nearTable) {
-    nearCraftingHinted = false;
-  }
+  document.getElementById('craft-prompt-btn').style.display = nearTable ? 'flex' : 'none';
 
   // ── Gentle lake shimmer
   for (const lake of lakeCenters) {
     lake.mesh.material.opacity = 0.78 + Math.sin(Date.now() * 0.001 + lake.x) * 0.07;
-  }
-
-  // ── Message fade
-  if (msgTimer > 0) {
-    msgTimer -= dt;
-    if (msgTimer <= 0) document.getElementById('message').classList.remove('show');
   }
 
   updateHUD();

@@ -40,12 +40,14 @@
     font-size: 24px;
     z-index: 15; cursor: pointer;
     -webkit-tap-highlight-color: transparent;
+    transform-origin: top right;
   }
   #backpack-btn:active { background: linear-gradient(160deg, #a06c38, #6e4621); }
 
   #hotbar {
-    position: fixed; bottom: 96px; left: 50%; transform: translateX(-50%);
+    position: fixed; bottom: 96px; left: 50%;
     display: flex; gap: 6px; z-index: 10;
+    transform-origin: bottom center;
   }
   .hotbar-slot {
     width: 44px; height: 44px;
@@ -173,6 +175,7 @@
     position: fixed; bottom: 20px; left: 20px;
     width: 110px; height: 110px;
     z-index: 20;
+    transform-origin: bottom left;
   }
   #joystick-bg {
     width: 110px; height: 110px;
@@ -195,6 +198,7 @@
     position: fixed; bottom: 20px; right: 20px;
     display: flex; flex-direction: column; gap: 10px;
     z-index: 20;
+    transform-origin: bottom right;
   }
   .action-btn {
     width: 56px; height: 56px;
@@ -213,6 +217,11 @@
     top: 0; left: 110px; right: 130px; bottom: 0;
     z-index: 5;
   }
+
+  /* Left-handed layout: swap joystick and hand button sides */
+  body.left-handed #joystick-zone { left: auto; right: 20px; transform-origin: bottom right; }
+  body.left-handed #action-buttons { right: auto; left: 20px; transform-origin: bottom left; }
+  body.left-handed #look-zone { left: 130px; right: 110px; }
 
   #message {
     position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -254,10 +263,113 @@
   }
   #crosshair::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
   #crosshair::after  { width: 100%; height: 2px; top: 50%; transform: translateY(-50%); }
+
+  /* ─── START / SETTINGS MENUS ─────────────────────────────────────────── */
+  .menu-screen {
+    position: fixed; inset: 0;
+    background: rgba(5,12,8,0.78);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 200;
+  }
+  .menu-panel {
+    width: min(360px, 88vw);
+    max-height: 86vh; overflow-y: auto;
+    background: linear-gradient(165deg, #3c5a32, #233b1f);
+    border: 2px solid rgba(255,226,122,0.35);
+    border-radius: 16px;
+    padding: 26px 22px;
+    display: flex; flex-direction: column; gap: 14px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+  }
+  .menu-panel h1 {
+    color: #ffe27a; font-size: 22px; letter-spacing: 2px;
+    text-align: center; text-shadow: 0 2px 6px rgba(0,0,0,0.4);
+  }
+  .menu-panel h2 {
+    color: #ffe27a; font-size: 18px; letter-spacing: 2px;
+    text-align: center; margin-bottom: 4px;
+  }
+  .menu-tagline {
+    color: rgba(255,255,255,0.75); font-size: 12.5px;
+    text-align: center; margin-top: -6px; margin-bottom: 6px;
+  }
+  .menu-btn {
+    padding: 13px 18px; border-radius: 10px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.25);
+    color: white; font-size: 14px; letter-spacing: 1px;
+    font-family: 'Courier New', monospace;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .menu-btn:active { background: rgba(255,255,255,0.18); }
+  .menu-btn.primary {
+    background: linear-gradient(160deg, #5fae3e, #3f7d28);
+    border-color: rgba(255,255,255,0.4);
+    font-weight: bold;
+  }
+  .setting-row {
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 10px 0; border-top: 1px solid rgba(255,255,255,0.12);
+  }
+  .setting-row label {
+    color: white; font-size: 13px; letter-spacing: 1px;
+    display: flex; justify-content: space-between;
+  }
+  .setting-row label span { color: #ffe27a; }
+  .setting-row input[type="range"] { width: 100%; }
+  .toggle-group { display: flex; gap: 6px; }
+  .toggle-btn {
+    flex: 1; padding: 9px 6px; text-align: center;
+    background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 8px; color: rgba(255,255,255,0.75); font-size: 12px;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .toggle-btn.active {
+    background: rgba(255,226,122,0.25); border-color: #ffe27a; color: #ffe27a;
+  }
 </style>
 </head>
 <body>
 
+<!-- Start / Settings menus -->
+<div id="start-screen" class="menu-screen">
+  <div class="menu-panel">
+    <h1>🌲 FOREST SURVIVOR</h1>
+    <p class="menu-tagline">Gather, craft, and survive the wilderness.</p>
+    <button class="menu-btn primary" id="play-btn">▶ Play</button>
+    <button class="menu-btn" id="open-settings-btn">⚙ Settings</button>
+  </div>
+</div>
+
+<div id="settings-screen" class="menu-screen" style="display:none;">
+  <div class="menu-panel">
+    <h2>Settings</h2>
+
+    <div class="setting-row">
+      <label>Look Sensitivity <span id="sens-value">1.0x</span></label>
+      <input type="range" id="sens-slider" min="0.5" max="2" step="0.1" value="1">
+    </div>
+
+    <div class="setting-row">
+      <label>Joystick Side</label>
+      <div class="toggle-group" id="layout-toggle">
+        <div class="toggle-btn active" data-layout="right">Right</div>
+        <div class="toggle-btn" data-layout="left">Left</div>
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <label>UI Size</label>
+      <div class="toggle-group" id="scale-toggle">
+        <div class="toggle-btn" data-scale="0.8">Small</div>
+        <div class="toggle-btn active" data-scale="1">Medium</div>
+        <div class="toggle-btn" data-scale="1.2">Large</div>
+      </div>
+    </div>
+
+    <button class="menu-btn" id="settings-back-btn">Back</button>
+  </div>
+</div>
 <canvas id="c"></canvas>
 
 <!-- HUD -->
@@ -1116,8 +1228,8 @@ document.addEventListener('pointerlockchange', () => {
 });
 document.addEventListener('mousemove', e => {
   if (!mouseLocked) return;
-  player.yaw   -= e.movementX * 0.002;
-  player.pitch -= e.movementY * 0.002;
+  player.yaw   -= e.movementX * 0.002 * settings.sensitivity;
+  player.pitch -= e.movementY * 0.002 * settings.sensitivity;
   player.pitch = Math.max(-1.2, Math.min(0.5, player.pitch));
 });
 
@@ -1176,8 +1288,8 @@ document.addEventListener('touchmove', e => {
       const dx = t.clientX - lookState.lx;
       const dy = t.clientY - lookState.ly;
       lookState.moved += Math.hypot(dx, dy);
-      player.yaw   -= dx * 0.003;
-      player.pitch -= dy * 0.003;
+      player.yaw   -= dx * 0.003 * settings.sensitivity;
+      player.pitch -= dy * 0.003 * settings.sensitivity;
       player.pitch = Math.max(-1.2, Math.min(0.5, player.pitch));
       lookState.lx = t.clientX; lookState.ly = t.clientY;
     }
@@ -1214,7 +1326,7 @@ function showMsg(text) {
 
 // ─── INTERACTION ──────────────────────────────────────────────────────────────
 function doInteract() {
-  if (player.dead) return;
+  if (!gameStarted || player.dead) return;
   const cam = camera.position;
 
   // Crafting table nearby?
@@ -1259,7 +1371,7 @@ function doInteract() {
 }
 
 function swingTool() {
-  if (player.dead || player.attackCooldown > 0) return;
+  if (!gameStarted || player.dead || player.attackCooldown > 0) return;
   player.attackCooldown = 0.5;
   axeSwingTimer = 0.25;
 
@@ -1341,12 +1453,83 @@ function die(reason) {
     `You survived ${player.day} day${player.day!==1?'s':''} in the forest. ${reason} Score: ${player.score}`;
 }
 
+// ─── START SCREEN / SETTINGS ───────────────────────────────────────────────────
+let gameStarted = false;
+let menuAngle = 0;
+const settings = { sensitivity: 1.0, layout: 'right', uiScale: 1.0 };
+
+function applySettings() {
+  document.body.classList.toggle('left-handed', settings.layout === 'left');
+
+  const s = settings.uiScale;
+  document.getElementById('joystick-zone').style.transform = `scale(${s})`;
+  document.getElementById('action-buttons').style.transform = `scale(${s})`;
+  document.getElementById('backpack-btn').style.transform = `scale(${s})`;
+  document.getElementById('hotbar').style.transform = `translateX(-50%) scale(${s})`;
+
+  document.getElementById('sens-value').textContent = settings.sensitivity.toFixed(1) + 'x';
+}
+
+document.getElementById('sens-slider').addEventListener('input', e => {
+  settings.sensitivity = parseFloat(e.target.value);
+  applySettings();
+});
+
+document.querySelectorAll('#layout-toggle .toggle-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#layout-toggle .toggle-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    settings.layout = btn.dataset.layout;
+    applySettings();
+  });
+});
+
+document.querySelectorAll('#scale-toggle .toggle-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#scale-toggle .toggle-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    settings.uiScale = parseFloat(btn.dataset.scale);
+    applySettings();
+  });
+});
+
+document.getElementById('open-settings-btn').addEventListener('click', () => {
+  document.getElementById('start-screen').style.display = 'none';
+  document.getElementById('settings-screen').style.display = 'flex';
+});
+
+document.getElementById('settings-back-btn').addEventListener('click', () => {
+  document.getElementById('settings-screen').style.display = 'none';
+  document.getElementById('start-screen').style.display = 'flex';
+});
+
+document.getElementById('play-btn').addEventListener('click', () => {
+  document.getElementById('start-screen').style.display = 'none';
+  document.getElementById('settings-screen').style.display = 'none';
+  camera.position.set(0, 1.7, 0);
+  player.yaw = 0;
+  player.pitch = 0;
+  gameStarted = true;
+  showMsg('🌲 Punch trees for wood, then place your 🔨 crafting table from the backpack to start building!');
+});
+
 // ─── MAIN LOOP ────────────────────────────────────────────────────────────────
 const clock = new THREE.Clock();
 const DAY_DURATION = 600; // 10 real-world minutes per full day/night cycle
 
 function tick() {
   requestAnimationFrame(tick);
+
+  if (!gameStarted) {
+    // Slow idle orbit showing off the forest behind the start screen
+    const dt = Math.min(clock.getDelta(), 0.1);
+    menuAngle += dt * 0.08;
+    camera.position.set(Math.sin(menuAngle) * 14, 7, Math.cos(menuAngle) * 14);
+    camera.lookAt(0, 2, 0);
+    renderer.render(scene, camera);
+    return;
+  }
+
   if (player.dead) { renderer.render(scene, camera); return; }
 
   const dt = Math.min(clock.getDelta(), 0.1);
@@ -1565,7 +1748,7 @@ function tick() {
 // ─── START ────────────────────────────────────────────────────────────────────
 addItem('crafting_table', 1);
 renderInventoryUI();
-showMsg('🌲 Punch trees for wood, then place your 🔨 crafting table from the backpack to start building!');
+applySettings();
 tick();
 </script>
 </body>

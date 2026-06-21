@@ -385,6 +385,14 @@
       </div>
     </div>
 
+    <div class="setting-row">
+      <label>Device</label>
+      <div class="toggle-group" id="device-toggle">
+        <div class="toggle-btn active" data-device="iphone">iPhone</div>
+        <div class="toggle-btn" data-device="ipad">iPad</div>
+      </div>
+    </div>
+
     <button class="menu-btn" id="settings-back-btn">Back</button>
   </div>
 </div>
@@ -1501,12 +1509,13 @@ function die(reason) {
 // ─── START SCREEN / SETTINGS ───────────────────────────────────────────────────
 let gameStarted = false;
 let menuAngle = 0;
-const settings = { sensitivity: 1.0, layout: 'right', uiScale: 1.0 };
+const settings = { sensitivity: 1.0, layout: 'right', uiScale: 1.0, device: 'iphone' };
 
 function applySettings() {
   document.body.classList.toggle('left-handed', settings.layout === 'left');
 
-  const s = settings.uiScale;
+  // iPad's bigger screen suits a larger default UI than iPhone
+  const s = settings.uiScale * (settings.device === 'ipad' ? 1.25 : 1);
   document.getElementById('joystick-zone').style.transform = `scale(${s})`;
   document.getElementById('action-buttons').style.transform = `scale(${s})`;
   document.getElementById('backpack-btn').style.transform = `scale(${s})`;
@@ -1535,6 +1544,15 @@ document.querySelectorAll('#scale-toggle .toggle-btn').forEach(btn => {
     document.querySelectorAll('#scale-toggle .toggle-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     settings.uiScale = parseFloat(btn.dataset.scale);
+    applySettings();
+  });
+});
+
+document.querySelectorAll('#device-toggle .toggle-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#device-toggle .toggle-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    settings.device = btn.dataset.device;
     applySettings();
   });
 });

@@ -245,6 +245,13 @@
   }
   #craft-prompt-btn:active { background: rgba(168,112,60,0.95); }
 
+  #cold-overlay {
+    position: fixed; inset: 0;
+    background: radial-gradient(ellipse at center, rgba(120,180,220,0) 40%, rgba(80,150,210,0.55) 100%);
+    pointer-events: none; z-index: 25;
+    opacity: 0; transition: opacity 0.3s;
+  }
+
   #death-screen {
     position: fixed; inset: 0;
     background: rgba(100,0,0,0.85);
@@ -436,6 +443,7 @@
 <div id="crosshair"></div>
 <div id="message"></div>
 <div id="craft-prompt-btn">🔨 Craft</div>
+<div id="cold-overlay"></div>
 
 <!-- Joystick -->
 <div id="joystick-zone">
@@ -470,7 +478,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.setClearColor(0x0a1a0a);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0xbfe8ff, 0.018);
+scene.fog = new THREE.FogExp2(0x6b766a, 0.032);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 200);
 camera.position.set(0, 1.7, 0);
@@ -488,7 +496,7 @@ let axeSwingTimer = 0;
 
 // ─── TOON SHADING HELPER (cel-shaded "Raft" look) ─────────────────────────────
 function buildToonGradient() {
-  const colors = new Uint8Array([70, 140, 200, 255]);
+  const colors = new Uint8Array([40, 95, 150, 215]);
   const tex = new THREE.DataTexture(colors, colors.length, 1, THREE.LuminanceFormat);
   tex.needsUpdate = true;
   tex.magFilter = THREE.NearestFilter;
@@ -514,7 +522,7 @@ const toonGradient = buildToonGradient();
 }
 
 // ─── LIGHTING (bright stylized outdoor look) ──────────────────────────────────
-const hemiLight = new THREE.HemisphereLight(0x9fd8ff, 0x4a7a3a, 0.9);
+const hemiLight = new THREE.HemisphereLight(0x6b766a, 0x2e3a26, 0.65);
 scene.add(hemiLight);
 
 const sunLight = new THREE.DirectionalLight(0xfff2cc, 1.2);
@@ -541,15 +549,17 @@ for (let i = 0; i < 9; i++) {
   });
 }
 
-const lakeCenters = [];
-for (let i = 0; i < 4; i++) {
-  const a = Math.random() * Math.PI * 2;
-  const d = 28 + Math.random() * 48;
-  lakeCenters.push({
-    x: Math.cos(a) * d,
-    z: Math.sin(a) * d,
-    radius: 8 + Math.random() * 5
-  });
+// River runs roughly along X, far from spawn, with a gentle meandering curve
+const riverBaseZ = 42;
+const riverWidth = 9;
+function riverCenterZ(x) {
+  return riverBaseZ + Math.sin(x * 0.045) * 11 + Math.sin(x * 0.12) * 4;
+}
+function distToRiver(x, z) {
+  return Math.abs(z - riverCenterZ(x));
+}
+function isInRiver(x, z) {
+  return distToRiver(x, z) < riverWidth * 0.8; // the actual cold, dangerous water
 }
 
 function getTerrainHeight(x, z) {
@@ -559,11 +569,8 @@ function getTerrainHeight(x, z) {
     const d2 = dx * dx + dz * dz;
     h += hill.height * Math.exp(-d2 / (hill.radius * hill.radius));
   }
-  for (const lake of lakeCenters) {
-    const dx = x - lake.x, dz = z - lake.z;
-    const d2 = dx * dx + dz * dz;
-    h -= 1.4 * Math.exp(-d2 / (lake.radius * lake.radius)); // carve a basin
-  }
+  const dRiver = distToRiver(x, z);
+  h -= 1.8 * Math.exp(-(dRiver * dRiver) / (riverWidth * riverWidth)); // carve the river channel
   // tiny ripple so "flat" ground still feels natural, not billiard-table flat
   h += Math.sin(x * 0.08) * Math.cos(z * 0.08) * 0.2;
 
@@ -579,13 +586,9 @@ function getTerrainHeight(x, z) {
   return h;
 }
 
-function isInLake(x, z) {
-  return lakeCenters.some(l => Math.hypot(x - l.x, z - l.z) < l.radius * 0.85);
-}
-
 // ─── GROUND ───────────────────────────────────────────────────────────────────
 const groundGeo = new THREE.PlaneGeometry(200, 200, 80, 80);
-const groundMat = new THREE.MeshToonMaterial({ color: 0x5fae3e, gradientMap: toonGradient });
+const groundMat = new THREE.MeshToonMaterial({ color: 0x3e4d30, gradientMap: toonGradient });
 const posArr = groundGeo.attributes.position.array;
 for (let i = 0; i < posArr.length; i += 3) {
   const xWorld = posArr[i];
@@ -598,22 +601,40 @@ ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
 
-// ─── LAKES (real water — drinking from it requires a crafted purifier) ──────
-const lakeMat = new THREE.MeshToonMaterial({
-  color: 0x33b8d6, gradientMap: toonGradient, transparent: true, opacity: 0.85
-});
-for (const lake of lakeCenters) {
-  const mesh = new THREE.Mesh(new THREE.CircleGeometry(lake.radius * 0.8, 24), lakeMat.clone());
-  mesh.rotation.x = -Math.PI / 2;
-  mesh.position.set(lake.x, getTerrainHeight(lake.x, lake.z) + 0.9, lake.z);
+// ─── RIVER (cold water — wading in starts to chill and hurt you) ────────────
+function buildRiver() {
+  const segments = 70;
+  const halfWidth = riverWidth * 0.85;
+  const positions = [];
+  for (let i = 0; i <= segments; i++) {
+    const x = -100 + (200 * i) / segments;
+    const cz = riverCenterZ(x);
+    const y = getTerrainHeight(x, cz) + 0.45;
+    positions.push(x, y, cz - halfWidth);
+    positions.push(x, y, cz + halfWidth);
+  }
+  const indices = [];
+  for (let i = 0; i < segments; i++) {
+    const a = i * 2, b = i * 2 + 1, c = (i + 1) * 2, d = (i + 1) * 2 + 1;
+    indices.push(a, b, c, b, d, c);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  const mat = new THREE.MeshToonMaterial({
+    color: 0x2c5a6e, gradientMap: toonGradient, transparent: true, opacity: 0.85, side: THREE.DoubleSide
+  });
+  const mesh = new THREE.Mesh(geo, mat);
   scene.add(mesh);
-  lake.mesh = mesh;
+  return mesh;
 }
+const riverMesh = buildRiver();
 
-// ─── GRASS (scattered everywhere, following the terrain, skipping lakes) ────
+// ─── GRASS (scattered everywhere, following the terrain, skipping the river) ─
 const grassGeo = new THREE.ConeGeometry(0.045, 0.32, 3);
 grassGeo.translate(0, 0.16, 0);
-const grassMat = new THREE.MeshToonMaterial({ color: 0x4fc14f, gradientMap: toonGradient, side: THREE.DoubleSide });
+const grassMat = new THREE.MeshToonMaterial({ color: 0x3a5a2e, gradientMap: toonGradient, side: THREE.DoubleSide });
 const GRASS_COUNT = 4500;
 const grassMesh = new THREE.InstancedMesh(grassGeo, grassMat, GRASS_COUNT);
 grassMesh.castShadow = false;
@@ -625,7 +646,7 @@ for (let i = 0; i < GRASS_COUNT; i++) {
     gx = (Math.random() - 0.5) * 178;
     gz = (Math.random() - 0.5) * 178;
     tries++;
-  } while (isInLake(gx, gz) && tries < 5);
+  } while (isInRiver(gx, gz) && tries < 5);
   const gy = getTerrainHeight(gx, gz);
   grassDummy.position.set(gx, gy, gz);
   grassDummy.rotation.y = Math.random() * Math.PI * 2;
@@ -652,7 +673,7 @@ function paintSky(topHex, bottomHex) {
   skyCtx.fillRect(0, 0, 2, 256);
   skyTexture.needsUpdate = true;
 }
-paintSky('#bfe8ff', '#eaf6ff');
+paintSky('#6b766a', '#929d8b');
 
 function lerpHexColor(hexA, hexB, t) {
   const a = new THREE.Color(hexA).lerp(new THREE.Color(hexB), t);
@@ -699,7 +720,7 @@ scene.add(stars);
 
 // Low-poly puffy clouds
 const clouds = [];
-const cloudMat = new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: toonGradient, transparent: true, opacity: 1 });
+const cloudMat = new THREE.MeshToonMaterial({ color: 0x8b9087, gradientMap: toonGradient, transparent: true, opacity: 1 });
 for (let i = 0; i < 14; i++) {
   const cg = new THREE.Group();
   const puffs = 3 + Math.floor(Math.random() * 3);
@@ -719,22 +740,22 @@ let skyTimer = 0;
 // ─── TREE BUILDER ─────────────────────────────────────────────────────────────
 function makeTree(x, z) {
   const g = new THREE.Group();
-  const h = 4 + Math.random() * 4;
-  const trunkMat = new THREE.MeshToonMaterial({ color: 0x8a5a2e, gradientMap: toonGradient });
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.25, h, 6), trunkMat);
+  const h = 6 + Math.random() * 6; // taller, more looming
+  const trunkMat = new THREE.MeshToonMaterial({ color: 0x3f2f20, gradientMap: toonGradient });
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.26, h, 6), trunkMat);
   trunk.position.y = h / 2;
   trunk.castShadow = true;
   g.add(trunk);
 
-  const leafColors = [0x4fc14f, 0x3fae3f, 0x5fd35f, 0x36a336];
+  const leafColors = [0x2d4029, 0x24351f, 0x1c2b18, 0x33472c];
   const lc = leafColors[Math.floor(Math.random() * leafColors.length)];
   const leafMat = new THREE.MeshToonMaterial({ color: lc, gradientMap: toonGradient });
-  const layers = 3 + Math.floor(Math.random() * 2);
+  const layers = 2 + Math.floor(Math.random() * 2); // sparser canopy
   for (let i = 0; i < layers; i++) {
-    const r = 1.5 - i * 0.3 + Math.random() * 0.3;
-    const lh = 2 + Math.random();
+    const r = 1.3 - i * 0.3 + Math.random() * 0.3;
+    const lh = 2.2 + Math.random();
     const leaf = new THREE.Mesh(new THREE.ConeGeometry(r, lh, 7), leafMat);
-    leaf.position.y = h * 0.6 + i * 1.2;
+    leaf.position.y = h * 0.65 + i * 1.4;
     leaf.castShadow = true;
     g.add(leaf);
   }
@@ -746,9 +767,15 @@ function makeTree(x, z) {
 
 const trees = [];
 for (let i = 0; i < 240; i++) {
-  const angle = Math.random() * Math.PI * 2;
-  const dist  = 8 + Math.random() * 80;
-  trees.push(makeTree(Math.cos(angle)*dist, Math.sin(angle)*dist));
+  let x, z, tries = 0;
+  do {
+    const angle = Math.random() * Math.PI * 2;
+    const dist  = 8 + Math.random() * 80;
+    x = Math.cos(angle) * dist;
+    z = Math.sin(angle) * dist;
+    tries++;
+  } while (isInRiver(x, z) && tries < 5);
+  trees.push(makeTree(x, z));
 }
 
 // ─── RESOURCES ────────────────────────────────────────────────────────────────
@@ -756,9 +783,14 @@ const resources = []; // {mesh, type, amount}
 
 function spawnResource(type, count) {
   for (let i = 0; i < count; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const dist  = 5 + Math.random() * 50;
-    const x = Math.cos(angle) * dist, z = Math.sin(angle) * dist;
+    let x, z, tries = 0;
+    do {
+      const angle = Math.random() * Math.PI * 2;
+      const dist  = 5 + Math.random() * 50;
+      x = Math.cos(angle) * dist;
+      z = Math.sin(angle) * dist;
+      tries++;
+    } while (isInRiver(x, z) && tries < 5);
     const groundY = getTerrainHeight(x, z);
     let mesh, amount;
     if (type === 'food') {
@@ -909,8 +941,8 @@ const craftingTables = [];
 const wolves = [];
 function spawnWolf(x, z) {
   const g = new THREE.Group();
-  const mat = new THREE.MeshToonMaterial({ color: 0x7a5c44, gradientMap: toonGradient });
-  const bellyMat = new THREE.MeshToonMaterial({ color: 0xe8dcc8, gradientMap: toonGradient });
+  const mat = new THREE.MeshToonMaterial({ color: 0x352a20, gradientMap: toonGradient });
+  const bellyMat = new THREE.MeshToonMaterial({ color: 0x5c4f3e, gradientMap: toonGradient });
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.5, 1.2), mat);
   body.position.y = 0.5;
   g.add(body);
@@ -936,9 +968,15 @@ function spawnWolf(x, z) {
 
 // Spawn initial wolves at distance
 for (let i = 0; i < 5; i++) {
-  const a = Math.random() * Math.PI * 2;
-  const d = 20 + Math.random() * 30;
-  spawnWolf(Math.cos(a)*d, Math.sin(a)*d);
+  let x, z, tries = 0;
+  do {
+    const a = Math.random() * Math.PI * 2;
+    const d = 20 + Math.random() * 30;
+    x = Math.cos(a) * d;
+    z = Math.sin(a) * d;
+    tries++;
+  } while (isInRiver(x, z) && tries < 5);
+  spawnWolf(x, z);
 }
 
 // ─── PLAYER STATE ─────────────────────────────────────────────────────────────
@@ -1347,20 +1385,14 @@ function doInteract() {
   if (!gameStarted || player.dead) return;
   const cam = camera.position;
 
-  // Lake nearby?
-  for (const lake of lakeCenters) {
-    const d = Math.hypot(cam.x - lake.x, cam.z - lake.z);
-    if (d < lake.radius + 2) {
-      if (getTotalCount('purifier') > 0) {
-        const amount = 20 + Math.floor(Math.random() * 15);
-        const added = addItem('water', amount);
-        if (!added) { showMsg('🎒 Inventory is full!'); return; }
-        showMsg('🚰 Purified ' + amount + ' water from the lake!');
-      } else {
-        showMsg('💧 This lake water isn\'t safe to drink. Craft a Water Purifier first!');
-      }
-      return;
+  // Near the river?
+  if (distToRiver(cam.x, cam.z) < riverWidth * 1.8) {
+    if (getTotalCount('purifier') > 0) {
+      const amount = 20 + Math.floor(Math.random() * 15);
+      const added = addItem('water', amount);
+      if (!added) return;
     }
+    return;
   }
 
   // Check resources
@@ -1557,9 +1589,9 @@ function tick() {
   // gradually rising through dawn (near t=0) and gradually falling through dusk (near t=0.5).
   const brightness = (1 + Math.cos(2 * Math.PI * (player.dayTime - 0.25))) / 2;
 
-  hemiLight.intensity = 0.3 + brightness * 0.8;
-  sunLight.intensity = 0.15 + brightness * 1.05;
-  sunLight.color.set(0x6f86c9).lerp(new THREE.Color(0xfff2cc), brightness);
+  hemiLight.intensity = 0.22 + brightness * 0.45;
+  sunLight.intensity = 0.1 + brightness * 0.55;
+  sunLight.color.set(0x4a5a6e).lerp(new THREE.Color(0xc7c2a8), brightness);
 
   // Sun and moon ride opposite arcs so one rises as the other sets
   const arc = player.dayTime * Math.PI * 2;
@@ -1567,23 +1599,23 @@ function tick() {
   const moonDir = new THREE.Vector3(Math.cos(arc + Math.PI), Math.sin(arc + Math.PI), -0.3).normalize();
   sunLight.position.copy(sunDir).multiplyScalar(40);
   sunSprite.position.copy(camera.position).add(sunDir.clone().multiplyScalar(90));
-  sunSprite.material.opacity = Math.max(0.12, brightness);
+  sunSprite.material.opacity = Math.max(0.06, brightness * 0.6);
   moonSprite.position.copy(camera.position).add(moonDir.clone().multiplyScalar(90));
-  moonSprite.material.opacity = Math.max(0.12, 1 - brightness);
+  moonSprite.material.opacity = Math.max(0.1, (1 - brightness) * 0.7);
 
-  starsMat.opacity = 0.75 * (1 - brightness);
+  starsMat.opacity = 0.4 * (1 - brightness);
 
   skyTimer += dt;
   if (skyTimer > 0.4) {
     skyTimer = 0;
     paintSky(
-      lerpHexColor(0x10173a, 0xbfe8ff, brightness),
-      lerpHexColor(0x2b3a66, 0xeaf6ff, brightness)
+      lerpHexColor(0x05070a, 0x6b766a, brightness),
+      lerpHexColor(0x0d1410, 0x929d8b, brightness)
     );
   }
-  scene.fog.color.set(0x10173a).lerp(new THREE.Color(0xbfe8ff), brightness);
+  scene.fog.color.set(0x05070a).lerp(new THREE.Color(0x6b766a), brightness);
 
-  cloudMat.opacity = 0.15 + 0.85 * brightness;
+  cloudMat.opacity = 0.25 + 0.6 * brightness;
   for (const c of clouds) {
     c.position.x += Math.cos(Date.now() * 0.00005 * c.userData.speed) * dt * 0.5;
     c.position.z += Math.sin(Date.now() * 0.00005 * c.userData.speed) * dt * 0.5;
@@ -1628,13 +1660,18 @@ function tick() {
     fire.flameCore.scale.y = 0.8 + Math.sin(Date.now()*0.011) * 0.25;
   }
 
+  // ── River: cold water hurts you the longer you stay in it
+  const inRiver = isInRiver(camera.position.x, camera.position.z);
+  if (inRiver) player.hp -= dt * 12;
+  document.getElementById('cold-overlay').style.opacity = inRiver ? 0.6 : 0;
+
   // Bob & rotate collectibles for a lively, stylized feel
   for (const r of resources) {
     r.position.y = r.userData.baseY + Math.sin(Date.now() * 0.002 + r.userData.bobOffset) * 0.08;
     r.rotation.y += dt * 0.6;
   }
 
-  if (player.hp <= 0) { die('You starved.'); return; }
+  if (player.hp <= 0) { die(inRiver ? 'You froze in the icy river.' : 'You starved.'); return; }
 
   // ── Movement
   const fwd  = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
@@ -1740,10 +1777,8 @@ function tick() {
   const nearTable = craftingTables.some(t => camera.position.distanceTo(t.position) < 3.5);
   document.getElementById('craft-prompt-btn').style.display = nearTable ? 'flex' : 'none';
 
-  // ── Gentle lake shimmer
-  for (const lake of lakeCenters) {
-    lake.mesh.material.opacity = 0.78 + Math.sin(Date.now() * 0.001 + lake.x) * 0.07;
-  }
+  // ── Gentle river shimmer
+  riverMesh.material.opacity = 0.78 + Math.sin(Date.now() * 0.001) * 0.07;
 
   updateHUD();
   renderer.render(scene, camera);
